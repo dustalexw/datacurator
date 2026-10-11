@@ -24,7 +24,11 @@ class AboutDialog(QDialog):
         logo.setAlignment(Qt.AlignCenter)
         logo.setAccessibleName("Data Curator icon")
         layout.addWidget(logo)
-        layout.addWidget(T.GradientTitle("Data Curator", 26), 0, Qt.AlignHCenter)
+        layout.addWidget(T.BrandTitle("Data Curator", 26), 0, Qt.AlignHCenter)
+
+        stripe = T.PeppermintStripe()
+        stripe.setFixedWidth(96)
+        layout.addWidget(stripe, 0, Qt.AlignHCenter)
 
         version = QLabel(f"Version {__version__}")
         version.setObjectName("AboutVersion")

@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="760" viewBox="0 0 1600 475">
+<defs>
+  <linearGradient id="burgundy" x2="1" y2="0.5"><stop stop-color="#351421"/><stop offset="1" stop-color="#69213d"/></linearGradient>
+  <pattern id="stripes" width="110" height="110" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
+    <rect x="-1" y="-1" width="112" height="112" fill="#fff5eb"/><rect y="-1" width="42" height="112" fill="#bd3451"/>
+    <rect x="42" y="-1" width="12" height="112" fill="#8a2445"/>
+  </pattern>
+</defs>
+<rect width="1600" height="475" rx="0" fill="url(#burgundy)"/>
+<path d="M1310 0H1600V475H1125Z" fill="url(#stripes)"/>
+<path d="M1296 0L1111 475" stroke="#9edbc6" stroke-width="6"/>
+<g transform="translate(52 102) scale(0.2578125)"><defs>
+  <linearGradient id="tile" x2="0.8" y2="1"><stop stop-color="#71203d"/><stop offset="1" stop-color="#300f1f"/></linearGradient>
+  <pattern id="peppermint" width="156" height="156" patternUnits="userSpaceOnUse" patternTransform="rotate(-35)">
+    <rect x="-1" y="-1" width="158" height="158" fill="#fff5eb"/><rect y="-1" width="65" height="158" fill="#bd3451"/>
+    <rect x="65" y="-1" width="13" height="158" fill="#8a2445"/>
+  </pattern>
+</defs>
+<rect x="52" y="52" width="920" height="920" rx="210" fill="url(#tile)"/>
+<rect x="65" y="65" width="894" height="894" rx="198" fill="none" stroke="#ad5e75" stroke-width="4"/>
+<!-- The storage stack remains the identity; its bands carry the barber-pole stripes. -->
+<g stroke="#fff5eb" stroke-width="14" stroke-linejoin="round">
+  <path d="M246 620v105c0 66 119 120 266 120s266-54 266-120V620" fill="url(#peppermint)"/>
+  <ellipse cx="512" cy="620" rx="266" ry="102" fill="#5c2038"/>
+  <path d="M246 435v105c0 66 119 120 266 120s266-54 266-120V435" fill="url(#peppermint)"/>
+  <ellipse cx="512" cy="435" rx="266" ry="102" fill="#5c2038"/>
+  <path d="M246 250v105c0 66 119 120 266 120s266-54 266-120V250" fill="url(#peppermint)"/>
+  <ellipse cx="512" cy="250" rx="266" ry="102" fill="#fff5eb"/>
+</g>
+<ellipse cx="512" cy="250" rx="195" ry="62" fill="#e8ccc6"/>
+<ellipse cx="512" cy="250" rx="147" ry="40" fill="#fff5eb"/>
+<g fill="#9edbc6" stroke="#351421" stroke-width="6">
+  <circle cx="668" cy="397" r="17"/><circle cx="668" cy="582" r="17"/><circle cx="668" cy="767" r="17"/>
+</g>
+</g>
+<g font-family="Helvetica Neue, Arial, sans-serif">
+  <text x="352" y="109" fill="#9edbc6" font-size="18" font-weight="600" letter-spacing="3">THE PEPPERMINT EDITION</text>
+  <text x="347" y="219" fill="#fff5eb" font-size="104" font-weight="700" letter-spacing="-4">Data Curator</text>
+  <text x="353" y="282" fill="#fff5eb" font-size="27">Music, movies, photos &amp; paperwork.</text>
+  <text x="353" y="321" fill="#e5c5cd" font-size="24">Preview every move. Undo anytime.</text>
+  <rect x="353" y="365" width="36" height="4" rx="2" fill="#9edbc6"/>
+  <text x="405" y="373" fill="#fff5eb" font-size="16" font-weight="600" letter-spacing="2">PREVIEW · ORGANIZE · UNDO</text>
+</g>
+</svg>

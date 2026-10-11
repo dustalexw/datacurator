@@ -3,6 +3,18 @@
 Build 1.0.0 · tested 10 October 2026 · Linux 6.18.44 x86_64 (virtual machine: 2 × Intel Xeon @ 2.80 GHz,
 7.8 GB RAM, ext4 virtual disk) · Python 3.13.16 · PySide6 6.12 · mutagen 1.48.1
 
+## Version 1.3.1 update — 11 October 2026
+
+Local macOS test suite: **136 passed, 11 skipped** (unavailable filesystem/mount scenarios).
+An isolated offscreen GUI check exercised the actual View menu, migration of the old Nebula
+preference to burgundy dark, saved light/dark choices, reopening, selected review badges,
+System theme, apply, and history recoloring. Light/dark Review and About screenshots were
+visually checked; the regenerated icon and README banner use the same peppermint identity.
+
+The rebuilt macOS bundle passed foreground-app metadata, GUI startup, HEIC/PDF moves and undo,
+and extension/game/NFO/duplicate quarantine checks. GUI fixtures and preferences were isolated
+from the installed app and user files.
+
 ## Version 1.3.0 update — 11 October 2026
 
 Local macOS test suite: **136 passed, 11 skipped**. The skipped cases require Linux mounts or

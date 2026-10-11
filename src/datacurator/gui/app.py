@@ -292,13 +292,15 @@ class MainWindow(QMainWindow):
         brand.addWidget(logo)
         names = QVBoxLayout()
         names.setSpacing(0)
-        names.addWidget(T.GradientTitle("Data Curator", 14.5))
+        names.addWidget(T.BrandTitle("Data Curator", 14.5))
         tag = label("preview · apply · undo", "hint", wrap=False)
         tag.setStyleSheet("font-size: 8.5pt;")
         names.addWidget(tag)
         brand.addLayout(names, 1)
         sl.addLayout(brand)
-        sl.addSpacing(18)
+        sl.addSpacing(12)
+        sl.addWidget(T.PeppermintStripe())
+        sl.addSpacing(12)
         sl.addWidget(label("WORKFLOW", "section", wrap=False))
         sl.addSpacing(4)
         self.steps = QListWidget()
@@ -380,12 +382,14 @@ class MainWindow(QMainWindow):
         v = self.menuBar().addMenu("&View")
         from PySide6.QtGui import QActionGroup
         grp = QActionGroup(self)
-        for key, text in (("nebula", "Nebula theme (dark)"), ("system", "System theme")):
+        self.theme_actions = {}
+        for key, text in (("light", "Peppermint light"), ("dark", "Peppermint dark — burgundy"), ("system", "System theme")):
             a = QAction(text, self, checkable=True)
-            a.setChecked((self.settings.value("theme") or "nebula") == key)
+            a.setChecked(T.normalize_name(self.settings.value("theme") or "dark") == key)
             a.triggered.connect(lambda _=False, k=key: self.set_theme(k))
             grp.addAction(a)
             v.addAction(a)
+            self.theme_actions[key] = a
         h = self.menuBar().addMenu("&Help")
         self.about_action = QAction("About Data Curator…", self)
         self.about_action.setMenuRole(QAction.AboutRole)
@@ -403,8 +407,11 @@ class MainWindow(QMainWindow):
         AboutDialog(self).exec()
 
     def set_theme(self, name: str):
-        T.apply(QApplication.instance(), name)
+        name = T.apply(QApplication.instance(), name)
         self.settings.setValue("theme", name)
+        for key, action in self.theme_actions.items():
+            action.setChecked(key == name)
+        self.refresh_history()
         for t in list(getattr(self, "tiles", {}).values()) + list(getattr(self, "run_tiles", {}).values()):
             t.set_active(t.key == self.filter.currentData() if t in self.tiles.values() else False)
         self.update()
@@ -416,7 +423,7 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(w)
         lay.setContentsMargins(28, 22, 28, 20)
         lay.setSpacing(10)
-        lay.addWidget(T.GradientTitle("Sources and destinations", 20))
+        lay.addWidget(T.BrandTitle("Sources and destinations", 20))
         lay.addWidget(label("Choose the folders to organize, then where each kind of file should go. Leave a "
                             "destination empty to organize inside the source folder without adding a wrapper folder.",
                             "hint"))
@@ -508,7 +515,7 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(w)
         lay.setContentsMargins(28, 22, 28, 20)
         lay.setSpacing(10)
-        lay.addWidget(T.GradientTitle("Organization rules", 20))
+        lay.addWidget(T.BrandTitle("Organization rules", 20))
         lay.addWidget(label("Pick a layout per kind of file. Only folders the layout needs are created; tags, "
                             "collections and the review queue live in the catalog, not in extra folders.", "hint"))
         self.cat_tabs = QTabWidget()
@@ -583,17 +590,17 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(w)
         lay.setContentsMargins(28, 22, 28, 20)
         lay.setSpacing(10)
-        lay.addWidget(T.GradientTitle("Review proposed changes", 20))
+        lay.addWidget(T.BrandTitle("Review proposed changes", 20))
         self.summary = label("Run “Scan and preview” to see proposed changes.", "hint")
         self.summary.setAccessibleName("Plan summary")
         lay.addWidget(self.summary)
         tiles = QHBoxLayout()
         tiles.setSpacing(10)
         self.tiles: dict[str, T.StatTile] = {}
-        for key, text, color in (("changes", "To change", T.CYAN), ("review", "Review queue", T.AMBER),
-                                 ("conflicts", "Conflicts", T.RED), ("duplicates", "Duplicates", T.VIOLET),
-                                 ("unchanged", "Already organized", T.GREEN), ("_folders", "New folders", T.BLUE),
-                                 ("_bytes", "Copy between drives", T.PINK)):
+        for key, text, color in (("changes", "To change", T.ACCENT), ("review", "Review queue", T.WARNING),
+                                 ("conflicts", "Conflicts", T.ERROR), ("duplicates", "Duplicates", T.DUPLICATE),
+                                 ("unchanged", "Already organized", T.SUCCESS), ("_folders", "New folders", T.INFO),
+                                 ("_bytes", "Copy between drives", T.QUARANTINE)):
             t = T.StatTile(key, text, color)
             t.clicked.connect(self._tile_clicked)
             self.tiles[key] = t
@@ -686,12 +693,12 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(w)
         lay.setContentsMargins(28, 22, 28, 20)
         lay.setSpacing(10)
-        lay.addWidget(T.GradientTitle("Results and history", 20))
+        lay.addWidget(T.BrandTitle("Results and history", 20))
         rt = QHBoxLayout()
         rt.setSpacing(10)
         self.run_tiles: dict[str, T.StatTile] = {}
-        for key, text, color in (("done", "Done", T.GREEN), ("failed", "Failed", T.RED),
-                                 ("skipped", "Left in place", T.AMBER), ("bytes", "Copied & verified", T.CYAN)):
+        for key, text, color in (("done", "Done", T.SUCCESS), ("failed", "Failed", T.ERROR),
+                                 ("skipped", "Left in place", T.WARNING), ("bytes", "Copied & verified", T.ACCENT)):
             t = T.StatTile(key, text, color)
             self.run_tiles[key] = t
             rt.addWidget(t)
@@ -1224,12 +1231,12 @@ class MainWindow(QMainWindow):
                     b["status"].replace("_", " "), (b.get("message") or "").split("\n")[0]]
             for c, v in enumerate(vals):
                 item = QTableWidgetItem(v)
-                if c == 3 and T.is_nebula():
-                    col = {"completed": T.GREEN, "undone": T.VIOLET, "cancelled": T.AMBER, "interrupted": T.AMBER,
-                           "failed": T.RED}.get(b["status"], T.CORAL if "error" in b["status"] or "partial" in
+                if c == 3 and T.is_custom():
+                    col = {"completed": T.SUCCESS, "undone": T.DUPLICATE, "cancelled": T.WARNING, "interrupted": T.WARNING,
+                           "failed": T.ERROR}.get(b["status"], T.QUARANTINE if "error" in b["status"] or "partial" in
                                                 b["status"] else T.TEXT)
                     from PySide6.QtGui import QColor
-                    item.setForeground(QColor(col))
+                    item.setForeground(QColor(T.color(col)))
                 self.history.setItem(r, c, item)
 
     def undo_selected(self):
@@ -1386,7 +1393,7 @@ def main(argv=None) -> int:
     app.setApplicationVersion(__version__)
     app.setOrganizationName("DataCurator")
     app.setWindowIcon(T.app_icon())
-    T.apply(app, str(QSettings("DataCurator", "DataCurator").value("theme") or "nebula"))
+    T.apply(app, str(QSettings("DataCurator", "DataCurator").value("theme") or "dark"))
     w = MainWindow()
     w.show()
     return app.exec()
