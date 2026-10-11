@@ -267,6 +267,10 @@ class Executor:
         if rep.fatal:
             raise PreflightError("\n".join(rep.fatal))
         if self.resume_batch:
+            bad = self._continuity_problems(self.resume_batch)
+            if bad:
+                raise PreflightError("The storage at the destination does not contain the files this run already "
+                                     "wrote, so it may be a different drive or share:\n  " + "\n  ".join(bad[:5]))
             self.batch = self.resume_batch
             self.j.set_batch(self.batch, "running")
             already = self.j.done_items(self.batch)
@@ -327,6 +331,21 @@ class Executor:
             if self.catalog is not None and self._moved:
                 self.catalog.rename_paths(self._moved)
         return res
+
+    def _continuity_problems(self, bid: str) -> list[str]:
+        """Before resuming, prove the reconnected storage is the same: files this batch already
+        placed must still be there with the recorded size and modification time."""
+        problems = []
+        done = [o for o in self.j.ops(bid, states={"done"}) if o.kind in ("move", "quarantine") and o.dst_sig]
+        for o in done[-50:]:
+            try:
+                st = self.fs.stat(o.dst)
+            except OSError:
+                problems.append(f"missing: {o.dst}")
+                continue
+            if st.st_size != o.dst_sig.get("size") or abs(st.st_mtime_ns - o.dst_sig.get("mtime_ns", 0)) > 2e9:
+                problems.append(f"different: {o.dst}")
+        return problems
 
     def _summary(self, res: ApplyResult) -> dict:
         return {"done": res.done, "failed": res.failed, "skipped": res.skipped, "bytes_copied": res.bytes_copied,

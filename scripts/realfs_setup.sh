@@ -34,3 +34,4 @@ smbd -s /tmp/smb.conf -D; sleep 2
 mkdir -p ~/.smb mnt-smb; printf 'auth "guest" ""\nhost 127.0.0.1 visible=true\nlocal_charset "UTF-8"\n' > ~/.smb/smbnetfs.conf; chmod 600 ~/.smb/smbnetfs.conf
 LANG=C.UTF-8 smbnetfs mnt-smb; sleep 2
 echo "export DATACURATOR_REALFS=vfat=$F/mnt-vfat,exfat=$F/mnt-exfat,ntfs=$F/mnt-ntfs,xfs=$F/mnt-xfs,ext4=$F/mnt-ext4,smb=$F/mnt-smb/127.0.0.1/share"
+echo "export DATACURATOR_SMB_KILL=\"pkill -9 smbd\" DATACURATOR_SMB_START=\"smbd -s /tmp/smb.conf -D\""

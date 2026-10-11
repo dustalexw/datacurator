@@ -1,0 +1,163 @@
+{
+ "exfat": {
+  "case_only_and_cycle": "ok",
+  "checked_at": "2026-10-10 20:49:40",
+  "cross_volume_apply": "5 files, 5255566 bytes verified",
+  "inplace_needed_second_preview": true,
+  "mount": "/tmp/fs/mnt-exfat",
+  "probe": {
+   "ascii_only": false,
+   "case_sensitive": false,
+   "fs_type": "fuseblk",
+   "is_network": false,
+   "normalization_insensitive": false,
+   "supports_hardlinks": false,
+   "supports_symlinks": false,
+   "supports_xattr": false,
+   "windows_naming": true
+  },
+  "replan_changes": 0,
+  "result": "pass",
+  "undo": "complete"
+ },
+ "ext4": {
+  "case_only_and_cycle": "ok",
+  "checked_at": "2026-10-10 20:49:40",
+  "cross_volume_apply": "5 files, 5255566 bytes verified",
+  "mount": "/tmp/fs/mnt-ext4",
+  "probe": {
+   "ascii_only": false,
+   "case_sensitive": true,
+   "fs_type": "ext4",
+   "is_network": false,
+   "normalization_insensitive": false,
+   "supports_hardlinks": true,
+   "supports_symlinks": true,
+   "supports_xattr": true,
+   "windows_naming": false
+  },
+  "replan_changes": 0,
+  "result": "pass",
+  "undo": "complete"
+ },
+ "ntfs": {
+  "case_only_and_cycle": "ok",
+  "checked_at": "2026-10-10 20:49:41",
+  "cross_volume_apply": "5 files, 5255566 bytes verified",
+  "mount": "/tmp/fs/mnt-ntfs",
+  "probe": {
+   "ascii_only": false,
+   "case_sensitive": true,
+   "fs_type": "fuse",
+   "is_network": false,
+   "normalization_insensitive": false,
+   "supports_hardlinks": true,
+   "supports_symlinks": true,
+   "supports_xattr": true,
+   "windows_naming": false
+  },
+  "replan_changes": 0,
+  "result": "pass",
+  "undo": "complete"
+ },
+ "smb": {
+  "case_only_and_cycle": "ok",
+  "checked_at": "2026-10-10 20:49:41",
+  "cross_volume_apply": "5 files, 5255566 bytes verified",
+  "mount": "/tmp/fs/mnt-smb/127.0.0.1/share",
+  "probe": {
+   "ascii_only": false,
+   "case_sensitive": false,
+   "fs_type": "fuse.smbnetfs",
+   "is_network": true,
+   "normalization_insensitive": false,
+   "supports_hardlinks": false,
+   "supports_symlinks": false,
+   "supports_xattr": false,
+   "windows_naming": true
+  },
+  "replan_changes": 0,
+  "result": "pass",
+  "undo": "complete"
+ },
+ "smb server killed mid-batch": {
+  "checked_at": "2026-10-10 20:49:43",
+  "first_run": "interrupted",
+  "mount": "/tmp/fs/mnt-smb/127.0.0.1/share",
+  "result": "pass",
+  "resumed": [
+   "Batch 20261010-204943-a3253b: resumed \u2014 4 done, 0 failed, 0 skipped."
+  ]
+ },
+ "squashfs (read-only)": {
+  "behaviour": "scan+preview OK; moving out refused (source not removable); as destination: review",
+  "checked_at": "2026-10-10 20:49:43",
+  "mount": "/tmp/fs/mnt-ro",
+  "probe": {
+   "fs_type": "squashfs",
+   "read_only": true
+  },
+  "result": "pass"
+ },
+ "tmpfs": {
+  "case_only_and_cycle": "ok",
+  "checked_at": "2026-10-10 20:49:42",
+  "cross_volume_apply": "5 files, 5255566 bytes verified",
+  "mount": "/dev/shm",
+  "probe": {
+   "ascii_only": false,
+   "case_sensitive": true,
+   "fs_type": "tmpfs",
+   "is_network": false,
+   "normalization_insensitive": false,
+   "supports_hardlinks": true,
+   "supports_symlinks": true,
+   "supports_xattr": true,
+   "windows_naming": false
+  },
+  "replan_changes": 0,
+  "result": "pass",
+  "undo": "complete"
+ },
+ "vfat": {
+  "case_only_and_cycle": "ok",
+  "checked_at": "2026-10-10 20:49:42",
+  "cross_volume_apply": "5 files, 5255566 bytes verified",
+  "inplace_needed_second_preview": true,
+  "mount": "/tmp/fs/mnt-vfat",
+  "probe": {
+   "ascii_only": true,
+   "case_sensitive": false,
+   "fs_type": "fuse.fusefat",
+   "is_network": false,
+   "normalization_insensitive": false,
+   "supports_hardlinks": false,
+   "supports_symlinks": false,
+   "supports_xattr": false,
+   "windows_naming": true
+  },
+  "replan_changes": 0,
+  "result": "pass",
+  "undo": "complete"
+ },
+ "xfs": {
+  "case_only_and_cycle": "ok",
+  "checked_at": "2026-10-10 20:49:43",
+  "cross_volume_apply": "5 files, 5255566 bytes verified",
+  "mount": "/tmp/fs/mnt-xfs",
+  "probe": {
+   "ascii_only": false,
+   "case_sensitive": true,
+   "fs_type": "xfs",
+   "is_network": false,
+   "normalization_insensitive": false,
+   "supports_hardlinks": true,
+   "supports_symlinks": true,
+   "supports_xattr": true,
+   "windows_naming": false
+  },
+  "replan_changes": 0,
+  "result": "pass",
+  "undo": "complete"
+ }
+}

@@ -61,9 +61,13 @@ def _still_ours(fs: LocalFS, op: Op) -> tuple[bool, str]:
     st = fs.stat(path)
     sig = op.dst_sig or {}
     if sig:
-        if st.st_size != sig.get("size") or st.st_mtime_ns != sig.get("mtime_ns"):
+        exact_time = st.st_mtime_ns == sig.get("mtime_ns")
+        # network clients may round timestamps differently after a reconnect
+        near_time = abs(st.st_mtime_ns - sig.get("mtime_ns", 0)) <= 2_000_000_000
+        if st.st_size != sig.get("size") or not near_time:
             return False, f"{path} was modified after organizing; left as is"
-        if not op.cross and sig.get("ino") and st.st_ino != sig.get("ino"):
+        if not op.cross and sig.get("ino") and st.st_ino != sig.get("ino") and not exact_time:
+            # inode changed (e.g. share reconnected) and timestamp not identical: verify nothing else
             return False, f"{path} is a different file than the one organized; left as is"
     if op.cross and op.src_hash and hash_file(path) != op.src_hash:
         return False, f"{path} content differs from what was copied; left as is"

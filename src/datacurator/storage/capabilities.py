@@ -58,7 +58,9 @@ class VolumeIdentity:
         """True if `other` plausibly is the same storage. Returns (ok, explanation)."""
         if self.fs_type and other.fs_type and self.fs_type != other.fs_type:
             return False, f"filesystem type changed ({self.fs_type} → {other.fs_type})"
-        if self.root_ino and other.root_ino and self.root_ino != other.root_ino:
+        if self.root_ino and other.root_ino and self.root_ino != other.root_ino and not self.is_network:
+            # Network clients often renumber inodes after a reconnect, so for shares the
+            # share source (below) and the journal continuity check in the executor decide.
             return False, "the folder at this path is not the same folder that was scanned"
         if self.win_serial and other.win_serial and self.win_serial != other.win_serial:
             return False, "volume serial number changed"

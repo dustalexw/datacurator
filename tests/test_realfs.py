@@ -129,3 +129,81 @@ def test_real_filesystem(name, engine, tmp_path):
     finally:
         _record(name, rec)
         shutil.rmtree(base, ignore_errors=True)
+
+
+RO = os.environ.get("DATACURATOR_READONLY_FS")  # a mounted read-only filesystem containing rip/a.flac
+
+
+@pytest.mark.skipif(not RO, reason="DATACURATOR_READONLY_FS not set")
+def test_read_only_filesystem_scan_and_copy_out(engine, tmp_path):
+    """Read-only media (optical/squashfs) can be scanned and previewed; moving out is refused
+    (the source cannot be removed), and as a destination it is rejected."""
+    rec = {"mount": RO, "checked_at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    try:
+        caps = probe(RO)
+        assert caps.read_only
+        p = profile([RO], music={"root": str(tmp_path / "Music")})
+        st = engine.scan(p)
+        assert st.files >= 1
+        store = engine.plan(p)
+        assert store.count("changes") == 1
+        res = engine.apply(store)
+        assert res.done == 0 and "permission" in res.preflight[0][1]
+        assert not (tmp_path / "Music").exists() or not any((tmp_path / "Music").rglob("*.flac"))
+        p2 = profile([tmp_path / "src"], music={"root": RO})
+        make_audio(str(tmp_path / "src/x.flac"), title="T", artist="A", album="B", albumartist="A", tracknumber="1")
+        engine.scan(p2)
+        it = next(engine.plan(p2).items())
+        assert it.action == "review" and "read-only" in it.reason
+        rec.update(probe={"fs_type": caps.fs_type, "read_only": True}, result="pass",
+                   behaviour="scan+preview OK; moving out refused (source not removable); as destination: review")
+    except BaseException as e:
+        rec["result"] = f"fail: {e}"
+        raise
+    finally:
+        _record("squashfs (read-only)", rec)
+
+
+SMB_KILL = os.environ.get("DATACURATOR_SMB_KILL")    # e.g. "pkill -9 smbd"
+SMB_START = os.environ.get("DATACURATOR_SMB_START")  # e.g. "smbd -s /tmp/smb.conf -D"
+
+
+@pytest.mark.skipif(not (SMB_KILL and SMB_START and "smb" in TARGETS), reason="SMB server control not configured")
+def test_real_share_disconnect_resume_and_undo(engine, tmp_path):
+    """VERIFIED on a real Samba server: the server is killed mid-batch, then restarted."""
+    import subprocess
+    rec = {"mount": TARGETS["smb"], "checked_at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    base = os.path.join(TARGETS["smb"], "curator-dc-" + uuid.uuid4().hex[:6])
+    os.makedirs(base)
+    try:
+        lib = tmp_path / "lib"
+        for i in range(6):
+            make_file(str(lib / f"Show.S01E{i + 1:02d}.mkv"), os.urandom(4 * 1024 * 1024))
+        before = sorted(_hashes(lib).values())
+        p = profile([lib], tv={"root": os.path.join(base, "TV")}, network={"retries": 2})
+        engine.scan(p)
+        store = engine.plan(p)
+        state = {"killed": False}
+
+        def prog(ev):
+            if ev["done"] == 2 and not state["killed"]:
+                state["killed"] = True
+                subprocess.run(SMB_KILL, shell=True)
+        res = engine.apply(store, progress=prog, sleep=lambda s: time.sleep(0.2))
+        assert res.status in ("interrupted", "failed", "completed_with_errors"), res.status
+        assert len(list(lib.iterdir())) + res.done == 6  # every file is either moved or still at its source
+        subprocess.run(SMB_START, shell=True)
+        time.sleep(3)
+        rep = engine.recover(resume=True)
+        if res.status != "interrupted":   # failed items are retried by planning again
+            engine.scan(p)
+            engine.apply(engine.plan(p))
+        assert sorted(_hashes(os.path.join(base, "TV")).values()) == before
+        assert not list(lib.iterdir())
+        rec.update(result="pass", first_run=res.status, resumed=[a[:80] for a in rep.actions])
+    except BaseException as e:
+        rec["result"] = f"fail: {e}"
+        raise
+    finally:
+        _record("smb server killed mid-batch", rec)
+        shutil.rmtree(base, ignore_errors=True)
