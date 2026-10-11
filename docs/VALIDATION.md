@@ -3,6 +3,22 @@
 Build 1.0.0 · tested 10 October 2026 · Linux 6.18.44 x86_64 (virtual machine: 2 × Intel Xeon @ 2.80 GHz,
 7.8 GB RAM, ext4 virtual disk) · Python 3.13.16 · PySide6 6.12 · mutagen 1.48.1
 
+## Version 1.3.0 update — 11 October 2026
+
+Local macOS test suite: **136 passed, 11 skipped**. The skipped cases require Linux mounts or
+filesystems unavailable on this machine. New coverage includes extension routing and validation,
+in-source idempotence and undo, format folders with media companions, game/manual/realpath exclusions,
+filtered duplicates with preferred keepers, selected quarantine and undo, changed keepers before
+and after preflight, cancellation, hard links, NFO/embedded MP4 identification, local metadata
+precedence, bounded/cached TMDB responses, ambiguity resolution, and the desktop controls.
+
+Packaged CLI checks exercise HEIC/PDF and the new extension/game/NFO/duplicate workflows with
+exact-byte moves and undo. macOS CI runs the suite and packages the app for Apple silicon and Intel,
+including native activation verification. Provider behavior uses recorded responses; no live TMDB
+account or token is needed for tests. GUI tests run through Qt's offscreen platform.
+
+The original validation report below records the 1.0.0 Linux filesystem work.
+
 ## Result
 
 **106 tests passed, 0 failed** (`python -m pytest` with the real-filesystem environment from

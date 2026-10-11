@@ -5,7 +5,43 @@ Returns only what is present in the name or its folders; nothing is guessed.
 from __future__ import annotations
 
 import re
+import os
 from typing import Any
+
+
+def read_video(path: str) -> dict[str, Any]:
+    """Read local MP4/M4V tags without modifying or decoding video streams."""
+    if os.path.splitext(path)[1].lower() not in (".mp4", ".m4v", ".mov"):
+        return {}
+    try:
+        from mutagen.mp4 import MP4
+        tags = MP4(path).tags or {}
+        def first(key):
+            value = tags.get(key)
+            return value[0] if isinstance(value, list) and value else value
+        out = {"_source": "embedded MP4 tags"}
+        title, series = first("\xa9nam"), first("tvsh")
+        if series:
+            out["series"] = str(series)
+            if title:
+                out["episode_title"] = str(title)
+            for key, field in (("tvsn", "season"), ("tves", "episodes")):
+                value = first(key)
+                if value is not None and str(value).isdigit():
+                    out[field] = [int(value)] if field == "episodes" else int(value)
+        elif title:
+            out["title"] = str(title)
+        date = str(first("\xa9day") or "")
+        if re.match(r"^\d{4}", date):
+            out["series_year" if series else "year"] = int(date[:4])
+        if plot := first("ldes") or first("desc"):
+            out["plot"] = str(plot)
+        if genre := first("\xa9gen"):
+            out["genres"] = [str(genre)]
+        return out
+    except Exception:
+        # Missing/unsupported tags do not invalidate filename or sidecar parsing.
+        return {}
 
 RES_RE = re.compile(r"(?<![a-z0-9])(2160p|1440p|1080p|1080i|720p|576p|480p|4k|uhd)(?![a-z0-9])", re.I)
 SRC_RE = re.compile(r"(?<![a-z0-9])(web[- .]?dl|webrip|web|blu[- .]?ray|bdrip|brrip|bdremux|remux|hdtv|"
@@ -224,6 +260,14 @@ def parse_movie(stem: str, parents: list[str]) -> dict[str, Any] | None:
             r.update(quality_tokens(stem))
             return r
     return None
+
+
+def movie_search_hint(stem):
+    """A query candidate for an explicit online lookup, never a confirmed movie identity."""
+    title = _clean(_strip_quality(stem))
+    if not title or title.casefold() in {"movie", "video", "sample", "trailer", "film", "home video"}:
+        return None
+    return title
 
 
 # ---------------------------------------------------------------- subtitle suffixes

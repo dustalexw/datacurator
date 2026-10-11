@@ -15,9 +15,11 @@ from typing import Callable
 
 from ..metadata.audio import read_audio
 from ..metadata.other import read_nfo, read_photo
+from ..metadata.video import read_video
 from ..models import FileRecord, Kind, kind_for
 from ..storage.capabilities import inspect
 from ..storage.catalog import META_VERSION, Catalog
+from .exclusions import DirectoryExclusions
 
 SKIP_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini", "$RECYCLE.BIN", "System Volume Information",
               "lost+found", "@eaDir", "#recycle", ".Trashes", ".Spotlight-V100", ".fseventsd",
@@ -35,6 +37,7 @@ class ScanOptions:
     cross_mounts: bool = False
     include_hidden: bool = False
     exclude_dirs: list[str] = field(default_factory=list)   # absolute paths never descended into
+    exclude_games: bool = True
     workers: int = 4
     network_workers: int = 2
 
@@ -51,13 +54,14 @@ class ScanStats:
     cycles: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     cancelled: bool = False
+    excluded_folders: list[tuple[str, str]] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return self.__dict__.copy()
 
 
 def _needs_meta(kind: str, name: str) -> bool:
-    return kind in (Kind.AUDIO.value, Kind.IMAGE.value, Kind.NFO.value)
+    return kind in (Kind.AUDIO.value, Kind.IMAGE.value, Kind.NFO.value, Kind.VIDEO.value)
 
 
 def extract_meta(path: str, kind: str) -> tuple[dict, str | None]:
@@ -67,6 +71,8 @@ def extract_meta(path: str, kind: str) -> tuple[dict, str | None]:
         m = read_photo(path)
     elif kind == Kind.NFO.value:
         m = read_nfo(path)
+    elif kind == Kind.VIDEO.value:
+        m = read_video(path)
     else:
         return {}, None
     err = m.pop("_error", None)
@@ -89,7 +95,7 @@ def scan(roots: list[str], catalog: Catalog, opts: ScanOptions | None = None,
     opts = opts or ScanOptions()
     stats = ScanStats()
     roots = normalize_roots(roots)
-    exclude = {os.path.abspath(p) for p in opts.exclude_dirs}
+    exclude = DirectoryExclusions({"exclude_dirs": opts.exclude_dirs, "exclude_games": opts.exclude_games})
     scan_id = catalog.begin_scan(roots)
     completed = True
     for root in roots:
@@ -124,6 +130,9 @@ def _scan_root(root, catalog, opts, stats, exclude, scan_id, workers, progress, 
             if cancel is not None and cancel.is_set():
                 raise Cancelled()
             d = stack.pop()
+            if reason := exclude.reason(d):
+                stats.excluded_folders.append((d, reason))
+                continue
             try:
                 dst = os.stat(d)
             except OSError as e:
@@ -158,8 +167,6 @@ def _scan_root(root, catalog, opts, stats, exclude, scan_id, workers, progress, 
                     if e.is_dir(follow_symlinks=False) or (is_link and e.is_dir(follow_symlinks=True)):
                         if is_link and not opts.follow_symlinks:
                             stats.skipped_symlinks += 1
-                            continue
-                        if full in exclude:
                             continue
                         if not opts.cross_mounts:
                             sdev = os.stat(full).st_dev

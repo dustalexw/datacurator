@@ -23,7 +23,7 @@ Choose sources → Choose rules → Scan → Review proposed changes → Apply �
   review queue with a suggested fix. Metadata is never invented.
 * **Never overwrites.** No-replace renames on every platform; cross-drive moves copy to a temporary
   name, verify a BLAKE2b hash, finalize atomically and only then remove the original.
-* **Works offline.** Embedded tags, filenames and local `.nfo` files. Online enrichment (TVmaze) is
+* **Works offline.** Embedded tags, filenames and local `.nfo` files. Online enrichment (TVmaze and TMDB) is
   optional, cached, and labelled with its provenance.
 
 ![Review screen](docs/screenshots/3-review.png)
@@ -54,12 +54,12 @@ Standalone builds (no Python needed) are described in [docs/PACKAGING.md](docs/P
    Unicode behaviour, Windows name rules, links, free space) with a hidden test file.
 2. **Rules** — choose a layout preset per category or edit the templates; the example updates as you
    type, including what happens when values are missing. Collision handling and naming preset are
-   visible; everything else is under **Advanced**.
+   visible. **Extensions**, **Exclusions**, and **Video metadata** have their own tabs; transfer options are under **Advanced**.
 3. **Review** — a virtualized before/after table with search and filters for the review queue,
    conflicts, uncertain matches, duplicates, errors, name adjustments and preservation notes; the
    proposed folder tree; per-file explanations in plain language, including metadata provenance and
    every sanitization. Batch actions: *Leave alone*, *Accept suggestion*, *Set value…* (per file or
-   for the whole album/series), *Update preview*. Export the plan as CSV/JSON.
+   for the whole album/series), *Choose match…* for ambiguous movie/TV lookup results, *Update preview*. Export the plan as CSV/JSON.
 4. **Results** — progress with pause/cancel, the run history, undo with a dry-run summary, and
    recovery of interrupted runs (offered automatically on start-up).
 
@@ -94,6 +94,63 @@ without moving files. The main scan/preview also refreshes this view.
 [MediaMonkey's file organization](https://www.mediamonkey.com/wiki/WebHelp%3AChanging_Filenames) and
 [tag-from-filename preview](https://mediamonkey.com/wiki/WebHelp%3AAuto-Tag_from_Filename).
 Online identification, artwork downloads and playback are not included.
+
+## Extension folders and game protections
+
+For a quick mixed-file setup, add your source folders and click **Mixed files: subfolders inside
+sources** on the Sources page, then **Scan and preview**. This selects format folders, turns on
+photos/documents, clears category destinations, and keeps online lookups off. It preserves your
+explicitly excluded folders. **profiles/mixed-in-source.json** provides the same reusable setup. PDFs go to `PDF`, archives to `Archives`,
+photos to `Photos/HEIC`, `Photos/JPEG`, etc., music to format/artist/album folders, and videos to
+format/movie or format/series/season folders inside each source. Save the profile to reuse it.
+
+In **Rules → Extensions**, enable sorting and edit the extension/folder table. Extensions may
+be comma separated, and folders must be relative paths such as `Documents/PDF`. An extension rule
+sorts standalone files without changing their filenames. For recognized music/video files it
+prefixes the normal category layout; attached cover art, subtitles and other companions stay with
+their media. Rename-only music/video layouts keep files in their current folders. Extension rules
+for documents/photos take priority over project/date layouts, so no photo date is needed for an
+explicit format folder. A category destination, if set, becomes the base for that category's folders.
+
+**Rules → Exclusions** protects installed game folders and `.app` bundles by default, using known
+launcher library names and common Steam/GOG/Unity/Unreal markers. Add other game or save-data
+folders explicitly. These protections cover scanning, previews from a cached catalog, and duplicate
+searches. Scan summaries show the number skipped; hover over the summary for paths and reasons.
+
+## Duplicate finder
+
+Open **Duplicates** (also available under **Tools**), choose all files or a file type, and optionally
+choose a folder whose copies should be kept. **Find duplicates** scans the sources, shortlists equal
+sizes, and compares exact content hashes. The table shows extra copies, retained copies and the
+quarantine destination. Search, select the copies you want to set aside, then **Quarantine selected
+copies…**. Files already excluded, game libraries and the quarantine are omitted. Hard links are
+left alone. Changed/unreadable files are reported instead of being moved. Empty files are omitted.
+
+The default quarantine is inside Data Curator's application data folder; a custom location can be
+chosen. Copies already in quarantine are never overwritten. The retained copy is verified again
+before each move. Quarantine moves use the recovery journal and can be undone under **Results**;
+permanent deletion is left to you. This finds identical bytes, not similar photos or re-encoded tracks.
+
+## Movie and TV details
+
+Local parsing is the default. Data Curator reads movie years, episode/season/date/absolute numbers,
+quality tokens in filenames, matching Kodi-style NFOs, single-video `movie.nfo`, parent `tvshow.nfo`,
+and embedded MP4/M4V/MOV title/series/season/episode tags. It gathers plot, runtime, genres and IDs
+when supplied locally. Generically named videos can be organized when their sidecar or embedded
+tags identify them. Gathered details are visible in **Review → Details** and exported with the plan.
+Metadata gathering does not rewrite video contents or generate new sidecars.
+
+Enable **TVmaze** or **TMDB** in **Rules → Video metadata** for optional online enrichment. TMDB
+requires your own [API Read Access Token](https://www.themoviedb.org/settings/api); use **Set TMDB
+read token…** to save it in the system credential store. The token is never written into a profile;
+CLI users may supply `DATACURATOR_TMDB_TOKEN` instead. Online lookup sends parsed names to the
+selected service, caches responses for 30 days, and fills missing fields with labelled provenance.
+Local values and overrides take priority. An ambiguous name/year stays in Review; select the file
+and **Choose match…**, or set `movie_id=tmdb:123` / `series_id=tvmaze:123` as a catalog override.
+A lookup failure leaves local organization available and is shown in the file's provenance.
+
+The Movie Database supplies optional movie data. This product uses the TMDB API but is not endorsed
+or certified by TMDB. Optional TV metadata is provided by [TVmaze](https://www.tvmaze.com/api).
 
 ## Command line
 

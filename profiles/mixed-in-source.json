@@ -1,0 +1,130 @@
+{
+  "name": "Mixed files inside each source",
+  "version": 1,
+  "sources": [],
+  "categories": {
+    "music": {
+      "enabled": true,
+      "root": "",
+      "mode": "move_and_rename",
+      "preset": "album_artist/album",
+      "folder": "{album_artist}/{album}",
+      "filename": "[{disc}-][{track:02} - ]{title}",
+      "compilation_name": "Various Artists",
+      "path_fallback": true
+    },
+    "tv": {
+      "enabled": true,
+      "root": "",
+      "mode": "move_and_rename",
+      "preset": "series/season",
+      "folder": "{series}/[Season {season:02}]",
+      "filename": "{series} - {episode_code}[ - {episode_title}]",
+      "numbering": "auto"
+    },
+    "movies": {
+      "enabled": true,
+      "root": "",
+      "mode": "move_and_rename",
+      "preset": "title_year",
+      "folder": "{title} ({year})",
+      "filename": "{title} ({year})[ - {edition}]"
+    },
+    "documents": {
+      "enabled": true,
+      "root": "",
+      "mode": "move",
+      "preset": "project",
+      "folder": "[{project}]",
+      "filename": "{name}"
+    },
+    "photos": {
+      "enabled": true,
+      "root": "",
+      "mode": "move",
+      "preset": "year/year-month",
+      "folder": "{year}/{year}-{month:02}",
+      "filename": "{name}",
+      "date_fallback": "none"
+    },
+    "other": {
+      "enabled": false,
+      "root": "",
+      "mode": "move",
+      "preset": "flat",
+      "folder": "",
+      "filename": "{name}"
+    }
+  },
+  "naming": {
+    "preset": "portable",
+    "unicode_form": "NFC"
+  },
+  "conflict_policy": "review",
+  "companions": {
+    "update_references": false
+  },
+  "write_tags": false,
+  "detect_duplicates": true,
+  "preservation": {
+    "block_lossy": false
+  },
+  "cleanup_empty_dirs": false,
+  "scan": {
+    "follow_symlinks": false,
+    "cross_mounts": false,
+    "include_hidden": false,
+    "exclude_games": true,
+    "exclude_dirs": []
+  },
+  "extension_folders": {
+    "enabled": true,
+    "folders": {
+      ".pdf": "PDF",
+      ".doc": "Word",
+      ".docx": "Word",
+      ".odt": "Word",
+      ".xls": "Spreadsheets",
+      ".xlsx": "Spreadsheets",
+      ".csv": "Spreadsheets",
+      ".ppt": "Presentations",
+      ".pptx": "Presentations",
+      ".epub": "Books",
+      ".zip": "Archives",
+      ".7z": "Archives",
+      ".rar": "Archives",
+      ".tar": "Archives",
+      ".gz": "Archives",
+      ".dmg": "Installers",
+      ".pkg": "Installers",
+      ".exe": "Installers",
+      ".mp3": "Music/MP3",
+      ".flac": "Music/FLAC",
+      ".m4a": "Music/AAC",
+      ".heic": "Photos/HEIC",
+      ".heif": "Photos/HEIF",
+      ".jpg": "Photos/JPEG",
+      ".jpeg": "Photos/JPEG",
+      ".png": "Photos/PNG",
+      ".mp4": "Videos/MP4",
+      ".m4v": "Videos/M4V",
+      ".mkv": "Videos/MKV",
+      ".mov": "Videos/MOV"
+    }
+  },
+  "dedupe": {
+    "quarantine_dir": "",
+    "prefer_root": ""
+  },
+  "unattended": {
+    "enabled": false
+  },
+  "network": {
+    "max_concurrent_transfers": 1,
+    "retries": 4
+  },
+  "providers": {
+    "tv": "none",
+    "movies": "none"
+  }
+}

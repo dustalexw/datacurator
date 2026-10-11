@@ -82,10 +82,10 @@ def job_music_library(w: Worker, engine, profile, scan=False):
     return library_rows(engine.catalog, profile["sources"], w.cancel_event)
 
 
-def job_apply(w: Worker, engine, store, approve_deletes=False):
+def job_apply(w: Worker, engine, store, approve_deletes=False, item_ids=None):
     def cb(ev):
         w.progress.emit(f"Applying… {ev['done']:,} of {ev['total']:,}", ev["done"], ev["total"])
-    return engine.apply(store, progress=cb, control=w.control, approve_deletes=approve_deletes)
+    return engine.apply(store, progress=cb, control=w.control, approve_deletes=approve_deletes, item_ids=item_ids)
 
 
 def job_undo(w: Worker, engine, batch_id, dry_run=False):
@@ -101,3 +101,16 @@ def job_recover(w: Worker, engine, resume=False):
 def job_probe(w: Worker, path):
     from ..storage.capabilities import probe
     return probe(path)
+
+
+def job_duplicates(w: Worker, engine, profile, kind=None):
+    stats = engine.scan(profile, progress=lambda d, n: w.progress.emit(f"Scanning… {n:,} files", n, 0),
+                        cancel=w.cancel_event)
+    if stats.cancelled:
+        return None
+    try:
+        store = engine.find_duplicates(profile, kind=kind, cancel=w.cancel_event,
+            progress=lambda n, total: w.progress.emit("Verifying duplicate candidates…", n, total))
+    except InterruptedError:
+        return None
+    return {"store": store, "stats": stats}

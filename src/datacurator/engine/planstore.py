@@ -190,7 +190,7 @@ class PlanStore:
         for k in FILTERS:
             s[k] = self.count(k)
         s["bytes_to_copy"] = self.scalar(
-            "SELECT COALESCE(SUM(size),0) FROM items WHERE action='move' AND data LIKE '%\"cross_device\": true%'")
+            "SELECT COALESCE(SUM(size),0) FROM items WHERE action IN ('move','quarantine') AND data LIKE '%\"cross_device\": true%'")
         s["folders_to_create"] = len(self.header("new_dirs", []) or [])
         return s
 
