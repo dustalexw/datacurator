@@ -56,7 +56,8 @@ class PlanStore:
     @classmethod
     def new(cls, directory: str) -> "PlanStore":
         os.makedirs(directory, exist_ok=True)
-        pid = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
+        now = time.time()
+        pid = time.strftime("%Y%m%d-%H%M%S", time.localtime(now)) + f"{int(now * 1000) % 1000:03d}-" + uuid.uuid4().hex[:4]
         ps = cls(os.path.join(directory, f"plan-{pid}.sqlite"), create=True)
         ps.set_header("plan_id", pid)
         ps.set_header("created", time.time())

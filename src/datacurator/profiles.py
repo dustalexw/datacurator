@@ -70,7 +70,7 @@ def _category_defaults(cat: str) -> dict[str, Any]:
     if cat == "music":
         d.update({"compilation_name": "Various Artists", "path_fallback": True})
     if cat == "tv":
-        d.update({"numbering": "auto", "episode_order": "aired"})
+        d.update({"numbering": "auto"})
     if cat in ("documents", "other"):
         d["mode"] = "move"
     if cat == "photos":

@@ -317,8 +317,12 @@ def cmd_locations(a):
                                 a.server or "", a.share or "", a.user or "", ident)
         if a.user and a.password_prompt:
             import getpass
-            L.store_password(a.name, a.user, getpass.getpass(f"Password for {a.user}: "))
-            print("Password stored in the operating system credential store.")
+            try:
+                L.store_password(a.name, a.user, getpass.getpass(f"Password for {a.user}: "))
+                print("Password stored in the operating system credential store.")
+            except Exception as e:
+                print(f"Could not store the password ({e.__class__.__name__}: {e}). "
+                      "Install or unlock your system keyring, or connect with the OS dialog instead.")
         print(f"Saved location “{a.name}”.")
     elif a.action == "remove":
         e.catalog.remove_location(a.name)

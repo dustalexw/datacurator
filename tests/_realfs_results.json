@@ -1,7 +1,7 @@
 {
  "exfat": {
   "case_only_and_cycle": "ok",
-  "checked_at": "2026-10-10 20:49:40",
+  "checked_at": "2026-10-10 20:54:23",
   "cross_volume_apply": "5 files, 5255566 bytes verified",
   "inplace_needed_second_preview": true,
   "mount": "/tmp/fs/mnt-exfat",
@@ -22,7 +22,7 @@
  },
  "ext4": {
   "case_only_and_cycle": "ok",
-  "checked_at": "2026-10-10 20:49:40",
+  "checked_at": "2026-10-10 20:54:24",
   "cross_volume_apply": "5 files, 5255566 bytes verified",
   "mount": "/tmp/fs/mnt-ext4",
   "probe": {
@@ -42,7 +42,7 @@
  },
  "ntfs": {
   "case_only_and_cycle": "ok",
-  "checked_at": "2026-10-10 20:49:41",
+  "checked_at": "2026-10-10 20:54:24",
   "cross_volume_apply": "5 files, 5255566 bytes verified",
   "mount": "/tmp/fs/mnt-ntfs",
   "probe": {
@@ -62,7 +62,7 @@
  },
  "smb": {
   "case_only_and_cycle": "ok",
-  "checked_at": "2026-10-10 20:49:41",
+  "checked_at": "2026-10-10 20:54:25",
   "cross_volume_apply": "5 files, 5255566 bytes verified",
   "mount": "/tmp/fs/mnt-smb/127.0.0.1/share",
   "probe": {
@@ -81,17 +81,17 @@
   "undo": "complete"
  },
  "smb server killed mid-batch": {
-  "checked_at": "2026-10-10 20:49:43",
+  "checked_at": "2026-10-10 20:54:27",
   "first_run": "interrupted",
   "mount": "/tmp/fs/mnt-smb/127.0.0.1/share",
   "result": "pass",
   "resumed": [
-   "Batch 20261010-204943-a3253b: resumed \u2014 4 done, 0 failed, 0 skipped."
+   "Batch 20261010-205427-c18cf6: resumed \u2014 4 done, 0 failed, 0 skipped."
   ]
  },
  "squashfs (read-only)": {
   "behaviour": "scan+preview OK; moving out refused (source not removable); as destination: review",
-  "checked_at": "2026-10-10 20:49:43",
+  "checked_at": "2026-10-10 20:54:27",
   "mount": "/tmp/fs/mnt-ro",
   "probe": {
    "fs_type": "squashfs",
@@ -101,7 +101,7 @@
  },
  "tmpfs": {
   "case_only_and_cycle": "ok",
-  "checked_at": "2026-10-10 20:49:42",
+  "checked_at": "2026-10-10 20:54:26",
   "cross_volume_apply": "5 files, 5255566 bytes verified",
   "mount": "/dev/shm",
   "probe": {
@@ -121,7 +121,7 @@
  },
  "vfat": {
   "case_only_and_cycle": "ok",
-  "checked_at": "2026-10-10 20:49:42",
+  "checked_at": "2026-10-10 20:54:26",
   "cross_volume_apply": "5 files, 5255566 bytes verified",
   "inplace_needed_second_preview": true,
   "mount": "/tmp/fs/mnt-vfat",
@@ -142,7 +142,7 @@
  },
  "xfs": {
   "case_only_and_cycle": "ok",
-  "checked_at": "2026-10-10 20:49:43",
+  "checked_at": "2026-10-10 20:54:26",
   "cross_volume_apply": "5 files, 5255566 bytes verified",
   "mount": "/tmp/fs/mnt-xfs",
   "probe": {
