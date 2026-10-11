@@ -38,6 +38,9 @@ The output folder `dist/DataCurator/` contains both programs sharing one runtime
 
 ### macOS
 
+* Ready-made builds: the `macOS build` GitHub Actions workflow builds, tests and packages both
+  architectures; pushing a `v*` tag publishes them as a GitHub release (`.dmg` and `.zip`).
+
 * Output: `dist/Data Curator.app` (plus the `curator` CLI inside `dist/DataCurator/`).
 * Sign and notarize for distribution:
   `codesign --deep --options runtime --sign "Developer ID Application: …" "dist/Data Curator.app"`,

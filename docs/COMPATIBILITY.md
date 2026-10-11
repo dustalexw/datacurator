@@ -34,7 +34,7 @@ asks for a new preview, which then uses the measured behaviour.
 | ReFS | — | Expected | — | |
 | FAT32 | **Verified** via fusefat (FUSE); kernel `vfat` expected | Expected | Expected | 4 GiB file limit enforced in preview; 2-second timestamps; no permissions/links. The userspace fusefat driver rejects non-ASCII names: detected by the probe, names are transliterated and shown in the preview |
 | exFAT | **Verified** via exfat-fuse; kernel `exfat` expected | Expected | Expected | Case-insensitive; no permissions/links/xattrs |
-| APFS | — | Unavailable | Expected | Case-insensitive and normalization-insensitive by default (probe measures; case-sensitive APFS also handled) |
+| APFS | — | Unavailable | **Verified** (test suite on macOS 14 Apple silicon and macOS 15 Intel) | Case-insensitive and normalization-insensitive by default (probe measures; case-sensitive APFS also handled). Cross-volume copies on macOS not exercised |
 | HFS+ | Unavailable (read-only kernel driver for journaled HFS+) | Unavailable | Expected | Stores NFD names; equivalence keys treat NFC/NFD as one name |
 | ISO 9660 / UDF (optical) | Read-only (expected) | Read-only (expected) | Read-only (expected) | |
 | squashfs | **Read-only, verified** | — | — | Scan and preview work; moving out is refused because originals cannot be removed; as a destination files go to review |
@@ -69,7 +69,7 @@ store through `keyring` (Windows Credential Manager, macOS Keychain, Secret Serv
 | Name and path length | 255 bytes / 255 UTF-16 units; full-path limit (260 on Windows unless long paths are enabled); filenames shortened at a code-point boundary or sent to review | Verified (simulated limits); Windows limit expected |
 | File size limits | FAT32 4 GiB enforced at preview | Verified (logic); not exercised with a >4 GiB file |
 | Free space | Checked per destination before applying; unknown free space (some SMB clients) is reported and disk-full is handled while copying | Verified |
-| Same-volume moves | Atomic no-replace rename: `renameat2(RENAME_NOREPLACE)` (Linux), `renamex_np(RENAME_EXCL)` (macOS), `MoveFileExW` without replace (Windows); fallback `link`+`unlink`; last resort check-then-rename (documented race) | Linux verified; macOS/Windows expected |
+| Same-volume moves | Atomic no-replace rename: `renameat2(RENAME_NOREPLACE)` (Linux), `renamex_np(RENAME_EXCL)` (macOS), `MoveFileExW` without replace (Windows); fallback `link`+`unlink`; last resort check-then-rename (documented race) | Linux and macOS verified; Windows expected |
 | Cross-volume moves | Copy to `.curator-part-…` in the destination folder → fsync → BLAKE2b verify → copy times/mode → no-replace rename → verify → remove source only if unchanged | Verified |
 | Timestamps / permission bits | Preserved (renames keep everything; copies copy mtime/atime and mode) | Verified on Linux |
 | Extended attributes | Copied on Linux when both sides support them; skipped on network/FAT/exFAT (some SMB FUSE clients fail on xattr calls) | Verified |
@@ -87,4 +87,4 @@ store through `keyring` (Windows Credential Manager, macOS Keychain, Secret Serv
 |---|---|
 | Linux x86_64 (Ubuntu 24.04 userland, kernel 6.18) | **Verified**: full test suite, GUI (offscreen Qt), CLI, PyInstaller build runs |
 | Windows 10/11 | Expected: Windows-specific code paths written (volume info, long paths, MoveFileEx, `net use`) but not executed in this environment |
-| macOS 11+ | Expected: `renamex_np`, APFS/HFS+ probing, Finder reconnection written but not executed |
+| macOS 14 (arm64) and macOS 15 (x86_64) | **Verified**: full automated test suite passes on GitHub-hosted runners (APFS, `renamex_np`, offscreen GUI); `.app` builds start and the bundled CLI runs. Not tested: a physical display, network shares, Finder reconnection, notarized distribution |

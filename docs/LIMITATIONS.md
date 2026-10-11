@@ -5,7 +5,7 @@ either not implemented or implemented but not verified in this release.
 
 ## Not verified on these platforms
 
-* **Windows and macOS were not run.** Their code paths exist (volume information and long-path
+* **Windows was not run; macOS only on CI.** The full test suite passes on GitHub-hosted macOS 14 (Apple silicon) and macOS 15 (Intel) runners, but macOS was not used interactively. Their code paths exist (volume information and long-path
   detection, `MoveFileExW` no-replace renames, UNC/mapped-drive detection, `net use`; macOS
   `renamex_np(RENAME_EXCL)`, APFS/HFS+ probing, Finder reconnection) but every *verified* result in
   [VALIDATION.md](VALIDATION.md) comes from Linux. Treat Windows/macOS as beta until the test suite has
@@ -14,7 +14,7 @@ either not implemented or implemented but not verified in this release.
 * The GUI was exercised with the offscreen Qt platform on Linux (functional tests and screenshots),
   not on a physical display, and not with a screen reader. Widgets carry accessible names and the
   workflow is keyboard-operable, but no formal accessibility audit was done.
-* Standalone builds were produced and smoke-tested on Linux only; no code signing or notarization.
+* Standalone builds: Linux (smoke-tested here) and macOS arm64/x86_64 (built and smoke-tested by `.github/workflows/macos.yml`). macOS builds are ad-hoc signed, not notarized; no Windows build yet.
 
 ## Not implemented
 
