@@ -34,6 +34,7 @@ from . import theme as T
 from .models import PlanTableModel, build_tree
 from .about import AboutDialog
 from .music import MusicPage
+from .organization import ExtensionFolders, Exclusions, VideoMetadata, DuplicatePage
 
 CATS = [("music", "Music"), ("tv", "TV"), ("movies", "Movies"), ("documents", "Documents"), ("photos", "Photos"),
         ("other", "Other files")]
@@ -228,7 +229,7 @@ class CategoryEditor(QWidget):
 class OverrideDialog(QDialog):
     FIELDS = {"music": ["album_artist", "album", "artist", "title", "track", "disc", "year", "compilation"],
               "tv": ["series", "series_year", "season", "episode", "episode_title", "absolute", "series_id"],
-              "movies": ["title", "year", "edition"], "photos": ["year", "month"],
+              "movies": ["title", "year", "edition", "movie_id"], "photos": ["year", "month"],
               "documents": ["project", "name"], "other": ["name"]}
 
     def __init__(self, parent, category: str, n: int, groups: bool):
@@ -303,7 +304,7 @@ class MainWindow(QMainWindow):
         self.steps = QListWidget()
         self.steps.setObjectName("steps")
         self.steps.setAccessibleName("Workflow steps")
-        for t in ("①  Sources", "②  Rules", "③  Review", "④  Results", "♫  Music library"):
+        for t in ("①  Sources", "②  Rules", "③  Review", "④  Results", "♫  Music library", "⊜  Duplicates"):
             self.steps.addItem(QListWidgetItem(t))
         sl.addWidget(self.steps, 1)
         safe = QGroupBox()
@@ -325,6 +326,8 @@ class MainWindow(QMainWindow):
         self.music_page = MusicPage(self, self.scan_music_library, self.save_music_details,
                                     self.use_music_layout, self.scan_and_preview)
         self.pages.addWidget(self.music_page)
+        self.duplicate_page = DuplicatePage(self, self.find_duplicates, self.quarantine_duplicates, self._rules_changed)
+        self.pages.addWidget(self.duplicate_page)
         self.music_page.write_tags.toggled.connect(self.opt_tags.setChecked)
         self.opt_tags.toggled.connect(self.music_page.write_tags.setChecked)
         self.steps.currentRowChanged.connect(self.pages.setCurrentIndex)
@@ -393,6 +396,8 @@ class MainWindow(QMainWindow):
         browse.setShortcut("Ctrl+M")
         browse.triggered.connect(lambda: self.steps.setCurrentRow(4))
         music.addAction("Scan music library", self.scan_music_library)
+        tools = self.menuBar().addMenu("&Tools")
+        tools.addAction("Find duplicates", lambda: self.steps.setCurrentRow(5))
 
     def show_about(self):
         AboutDialog(self).exec()
@@ -485,6 +490,10 @@ class MainWindow(QMainWindow):
         lay.addStretch(1)
         nav = QHBoxLayout()
         nav.addStretch(1)
+        quick = QPushButton("Mixed files: subfolders inside sources")
+        quick.setToolTip("Use format folders for music, videos, photos, documents and archives inside each source. Preview before applying.")
+        quick.clicked.connect(self.use_mixed_layout)
+        nav.addWidget(quick)
         nxt = primary("Next: rules →")
         nxt.clicked.connect(lambda: self.steps.setCurrentRow(1))
         nav.addWidget(nxt)
@@ -508,6 +517,13 @@ class MainWindow(QMainWindow):
             ed = CategoryEditor(cat, self._rules_changed)
             self.editors[cat] = ed
             self.cat_tabs.addTab(ed, title)
+        self.extension_rules = ExtensionFolders(self._rules_changed)
+        self.exclusions = Exclusions(self._rules_changed)
+        self.video_metadata = VideoMetadata(self._rules_changed)
+        self.provider = self.video_metadata.tv
+        self.cat_tabs.addTab(self.extension_rules, "Extensions")
+        self.cat_tabs.addTab(self.exclusions, "Exclusions")
+        self.cat_tabs.addTab(self.video_metadata, "Video metadata")
         lay.addWidget(self.cat_tabs, 3)
 
         g = QGroupBox("When something needs a decision")
@@ -537,18 +553,12 @@ class MainWindow(QMainWindow):
         self.opt_symlinks = QCheckBox("Follow folder symlinks while scanning")
         self.opt_mounts = QCheckBox("Scan into other drives mounted inside sources")
         self.opt_hidden = QCheckBox("Include hidden files")
-        self.provider = QComboBox()
-        self.provider.addItem("Offline only (tags, file names, .nfo files)", "none")
-        self.provider.addItem("TVmaze for missing episode titles (online)", "tvmaze")
         opts = [self.opt_refs, self.opt_tags, self.opt_dupes, self.opt_lossy, self.opt_cleanup, self.opt_symlinks,
                 self.opt_mounts, self.opt_hidden]
         for i, c in enumerate(opts):
             al.addWidget(c, i // 2, i % 2)
             c.toggled.connect(lambda *_: self._rules_changed())
-        prov_label = QLabel("TV metadata")
-        al.addWidget(prov_label, 4, 0)
-        al.addWidget(self.provider, 4, 1)
-        hidden = opts + [self.provider, prov_label]
+        hidden = opts
         self.adv.toggled.connect(lambda on: [c.setVisible(on) for c in hidden])
         for c in hidden:
             c.setVisible(False)
@@ -644,11 +654,12 @@ class MainWindow(QMainWindow):
         self.btn_include = QPushButton("Include again")
         self.btn_accept = QPushButton("Accept suggestion")
         self.btn_override = QPushButton("Set value…")
+        self.btn_match = QPushButton("Choose match…")
         self.btn_replan = QPushButton("Update preview")
         self.btn_replan.setToolTip("Re-plan with your changes (does not rescan unless files changed)")
         for b, fn in ((self.btn_exclude, self.exclude_selected), (self.btn_include, self.include_selected),
                       (self.btn_accept, self.accept_selected), (self.btn_override, self.override_selected),
-                      (self.btn_replan, self.replan)):
+                      (self.btn_match, self.choose_match), (self.btn_replan, self.replan)):
             b.clicked.connect(fn)
             acts.addWidget(b)
         acts.addStretch(1)
@@ -742,6 +753,11 @@ class MainWindow(QMainWindow):
         self.profile_label.setText(self.profile_path or "Unsaved profile")
         self.music_page.set_layout(prof["categories"]["music"])
         self.music_page.set_rows([])
+        self.extension_rules.load(prof["extension_folders"])
+        self.exclusions.load(prof["scan"])
+        self.video_metadata.load(prof["providers"])
+        self.duplicate_page.load(prof["dedupe"])
+        self._rules_changed()
 
     def current_profile(self) -> dict:
         p = copy.deepcopy(self.profile)
@@ -761,9 +777,15 @@ class MainWindow(QMainWindow):
         p["scan"].update(follow_symlinks=self.opt_symlinks.isChecked(), cross_mounts=self.opt_mounts.isChecked(),
                          include_hidden=self.opt_hidden.isChecked())
         p.setdefault("providers", {})["tv"] = self.provider.currentData()
+        p["providers"]["movies"] = self.video_metadata.movies.currentData()
+        p["extension_folders"] = self.extension_rules.dump()
+        p["scan"].update(self.exclusions.dump())
+        p["dedupe"].update(self.duplicate_page.dump())
         return p
 
-    def _rules_changed(self):
+    def _rules_changed(self, *_):
+        if hasattr(self, "duplicate_page"):
+            self.duplicate_page.invalidate()
         if self.store is not None:
             self.apply_btn.setEnabled(False)
             self.summary.setText("Rules changed — run “Scan and preview” again before applying.")
@@ -854,6 +876,9 @@ class MainWindow(QMainWindow):
 
     # ================================================================== profiles
     def open_profile(self):
+        if self.thread is not None:
+            QMessageBox.information(self, "Busy", "Wait for the current task before opening a profile.")
+            return
         f, _ = QFileDialog.getOpenFileName(self, "Open profile", self.profiles_dir, "Profiles (*.json)")
         if f:
             self._load_profile_file(f)
@@ -889,6 +914,54 @@ class MainWindow(QMainWindow):
             self.save_profile()
 
     # ================================================================== scan / plan
+    def use_mixed_layout(self):
+        if self.thread is not None:
+            return
+        sources = [self.sources.item(i).text() for i in range(self.sources.count())]
+        prof = P.mixed_in_source_profile(sources)
+        # Preserve folders the user explicitly asked to protect.
+        prof["scan"]["exclude_dirs"] = self.exclusions.dump()["exclude_dirs"]
+        self.profile_path = None
+        self._load_profile_into_ui(prof)
+        self.steps.setCurrentRow(1)
+        self.cat_tabs.setCurrentWidget(self.extension_rules)
+        self.status_text.setText("Mixed-file layout selected. Scan and preview before applying.")
+
+    def find_duplicates(self):
+        try:
+            prof = P.normalize(self.current_profile())
+        except CuratorError as e:
+            QMessageBox.warning(self, "Please check the rules", str(e))
+            return
+        if not prof["sources"]:
+            QMessageBox.information(self, "No sources", "Add source folders before finding duplicates.")
+            self.steps.setCurrentRow(0)
+            return
+        self.duplicate_page.invalidate()
+        self._run(W.job_duplicates, self._duplicates_ready, self.engine, prof,
+                  kind=self.duplicate_page.kind.currentData(), cancellable=True)
+
+    def _duplicates_ready(self, result):
+        if result is None:
+            self.status_text.setText("Duplicate search cancelled. No files were changed.")
+            return
+        self.duplicate_page.set_store(result["store"], result["stats"])
+        self.status_text.setText("Duplicate preview ready. No files were changed.")
+
+    def quarantine_duplicates(self):
+        page = self.duplicate_page
+        ids = page.selected_ids()
+        if not page.store or not ids or self.thread is not None:
+            return
+        msg = (f"Move {len(ids):,} selected extra copies into quarantine?\n\n"
+               "Retained copies are verified before each move. You can undo this run in Results.\n\n"
+               f"Quarantine: {page.store.header('profile')['dedupe']['quarantine_dir']}")
+        if QMessageBox.question(self, "Quarantine duplicates?", msg,
+                                QMessageBox.Apply | QMessageBox.Cancel, QMessageBox.Cancel) != QMessageBox.Apply:
+            return
+        self._run(W.job_apply, self._applied, self.engine, page.store, approve_deletes=True, item_ids=ids,
+                  cancellable=True, pausable=True, on_fail=self._apply_failed)
+
     def scan_music_library(self):
         try:
             prof = P.normalize(self.current_profile())
@@ -991,7 +1064,8 @@ class MainWindow(QMainWindow):
         st = res.get("stats")
         if st:
             self.status_text.setText(f"Scanned {st.files:,} files ({st.extracted:,} read, {st.reused:,} from catalog). "
-                                     "Nothing has been changed.")
+                                     f"{len(st.excluded_folders):,} protected folders skipped. Nothing has been changed.")
+            self.status_text.setToolTip("\n".join(f"{p}: {r}" for p, r in st.excluded_folders[:100]))
         if s["changes"] == 0 and s["review"]:
             self.filter.setCurrentIndex(self.filter.findData("review"))
         self._filter_changed()
@@ -1030,6 +1104,10 @@ class MainWindow(QMainWindow):
             cands = (it.suggestions or {}).get("_candidates")
             if cands:
                 text += "\n\nCandidates:\n  " + "\n  ".join(cands)
+            metadata = it.payload.get("metadata")
+            if metadata:
+                text += "\n\nGathered metadata:\n" + json.dumps({k: v for k, v in metadata.items()
+                    if not k.startswith("_")}, ensure_ascii=False, indent=2)
             self.details.setPlainText(text)
         elif items:
             self.details.setPlainText(f"{len(items)} files selected.")
@@ -1057,6 +1135,20 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Accept suggestion",
                                     "The selected files have no single suggested value. Use “Set value…”.")
             return
+        self.replan()
+
+    def choose_match(self):
+        items = self._selected_items()
+        if len(items) != 1 or not (items[0].suggestions or {}).get("_candidates"):
+            QMessageBox.information(self, "Choose match", "Select one movie or TV file with ambiguous matches in Review.")
+            return
+        item = items[0]
+        candidates = item.suggestions["_candidates"]
+        choice, ok = QInputDialog.getItem(self, "Choose metadata match", "Movie or TV series:", candidates, 0, False)
+        if not ok:
+            return
+        ref = choice.rsplit("[", 1)[-1].rstrip("]")
+        self.engine.catalog.set_override(item.source, "movie_id" if item.category == "movies" else "series_id", ref)
         self.replan()
 
     def override_selected(self):
@@ -1122,6 +1214,7 @@ class MainWindow(QMainWindow):
         self.summary.setText("Applied. Run “Scan and preview” to check the result.")
         self.music_page.set_rows([])
         self.music_page.summary.setText("Files were organized. Scan music library to refresh locations.")
+        self.duplicate_page.invalidate()
 
     def refresh_history(self):
         bs = self.engine.journal.batches(200)
@@ -1211,6 +1304,10 @@ class MainWindow(QMainWindow):
         worker = W.Worker(fn, *args, **kw)
         self.worker = worker
         self.music_page.set_busy(True)
+        self.duplicate_page.set_busy(True)
+        self.pages.widget(0).setEnabled(False)
+        self.pages.widget(1).setEnabled(False)
+        self.pages.widget(2).setEnabled(False)
         if not quiet:
             self.progress.setVisible(True)
             self.progress.setRange(0, 0)
@@ -1240,6 +1337,10 @@ class MainWindow(QMainWindow):
         self.pause_btn.setVisible(False)
         self.scan_btn.setEnabled(True)
         self.music_page.set_busy(False)
+        self.duplicate_page.set_busy(False)
+        self.pages.widget(0).setEnabled(True)
+        self.pages.widget(1).setEnabled(True)
+        self.pages.widget(2).setEnabled(True)
 
     def _on_finished(self, res):
         self._finish_task()

@@ -1,6 +1,7 @@
 """Branded application information for the native About menu."""
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QPixmap
+import os
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from .. import __version__
@@ -78,6 +79,18 @@ class AboutDialog(QDialog):
         credits.setAlignment(Qt.AlignCenter)
         credits.setWordWrap(True)
         layout.addWidget(credits)
+
+        tmdb = QLabel()
+        tmdb.setPixmap(QPixmap(os.path.join(os.path.dirname(__file__), "resources", "TMDB.png")).scaledToWidth(145, Qt.SmoothTransformation))
+        tmdb.setAlignment(Qt.AlignCenter)
+        tmdb.setAccessibleName("The Movie Database (TMDB)")
+        layout.addWidget(tmdb)
+        notice = QLabel("This product uses the TMDB API but is not endorsed or certified by TMDB.\n"
+                        "Optional TV metadata provided by TVmaze.")
+        notice.setWordWrap(True)
+        notice.setAlignment(Qt.AlignCenter)
+        notice.setProperty("role", "hint")
+        layout.addWidget(notice)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         buttons.rejected.connect(self.reject)

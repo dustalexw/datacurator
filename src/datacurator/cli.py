@@ -348,7 +348,7 @@ def cmd_dedupe(a):
     if not a.no_scan:
         cmd_scan(a)
     store = plan_dedupe(e.catalog, p["sources"], a.quarantine, e.plans_dir,
-                        prefer_roots=[c["root"] for c in p["categories"].values() if c.get("root")])
+                        prefer_roots=[c["root"] for c in p["categories"].values() if c.get("root")], profile=p)
     _print_summary(store)
     _print_items(store, "all", "", a.limit)
     print(f"\nApply with: curator apply {store.plan_id} --approve-deletes   (moves extra copies to {a.quarantine}; undoable)")

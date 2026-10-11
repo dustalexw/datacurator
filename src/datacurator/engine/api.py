@@ -41,7 +41,7 @@ class Engine:
     # ------------------------------------------------------------------- scan
     def scan_options(self, profile: dict) -> ScanOptions:
         s = profile.get("scan", {})
-        excl = [self.data_dir]
+        excl = [self.data_dir, *s.get("exclude_dirs", [])]
         # destination roots strictly inside a source root are output folders: never rescanned
         for c in profile["categories"].values():
             r = c.get("root")
@@ -53,7 +53,8 @@ class Engine:
         if q:
             excl.append(q)
         return ScanOptions(follow_symlinks=bool(s.get("follow_symlinks")), cross_mounts=bool(s.get("cross_mounts")),
-                           include_hidden=bool(s.get("include_hidden")), exclude_dirs=excl)
+                           include_hidden=bool(s.get("include_hidden")), exclude_dirs=excl,
+                           exclude_games=s.get("exclude_games", True))
 
     def scan(self, profile: dict, progress: Callable[[str, int], None] | None = None,
              cancel: threading.Event | None = None) -> ScanStats:
@@ -62,10 +63,10 @@ class Engine:
 
     # ------------------------------------------------------------------- plan
     def plan(self, profile: dict, progress: Callable[[str, int], None] | None = None,
-             cancel: threading.Event | None = None, caps_override=None, tv_provider=None) -> PlanStore:
+             cancel: threading.Event | None = None, caps_override=None, tv_provider=None, movie_provider=None) -> PlanStore:
         profile = profiles_mod.normalize(profile)
         return Planner(profile, self.catalog, self.plans_dir, progress, cancel, caps_override,
-                       tv_provider=tv_provider).build()
+                       tv_provider=tv_provider, movie_provider=movie_provider).build()
 
     def open_plan(self, path_or_id: str) -> PlanStore:
         p = path_or_id
@@ -79,6 +80,14 @@ class Engine:
         return sorted((f for f in os.listdir(self.plans_dir) if f.endswith(".sqlite")), reverse=True)
 
     # ------------------------------------------------------------------ apply
+    def find_duplicates(self, profile, kind=None, progress=None, cancel=None):
+        from .dedupe import plan_dedupe
+        profile = profiles_mod.normalize(profile)
+        quarantine = profile["dedupe"].get("quarantine_dir") or os.path.join(self.data_dir, "duplicate-quarantine")
+        prefer = profile["dedupe"].get("prefer_root")
+        return plan_dedupe(self.catalog, profile["sources"], quarantine, self.plans_dir,
+                           [prefer] if prefer else [], profile=profile, kind=kind, progress=progress, cancel=cancel)
+
     def apply(self, plan: PlanStore, progress=None, control=None, **kw):
         from .executor import Executor
         ex = Executor(plan, self.journal, self.catalog, progress=progress, control=control, **kw)

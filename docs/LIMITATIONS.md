@@ -27,8 +27,7 @@ either not implemented or implemented but not verified in this release.
 * **Copy mode** (copy into the library and keep the originals). Moving out of read-only media such as
   optical discs is therefore refused; those sources can be scanned and previewed only.
 * **Online music metadata** (e.g. MusicBrainz) — music is organized from embedded tags, overrides and
-  folder-name suggestions only. The only online provider is **TVmaze** for missing episode titles; it
-  was tested with recorded responses because this environment has no access to the TVmaze API.
+  folder-name suggestions only. Optional video providers are **TVmaze** and **TMDB**; their response handling is tested with recorded responses. TMDB requires a user-supplied API Read Access Token.
 * **Alternate episode orders** (DVD/absolute ↔ aired mapping). Episode numbers in filenames are used
   as given; absolute numbering must be chosen explicitly and produces `Series - 123` names without
   mapping to seasons.
@@ -38,6 +37,9 @@ either not implemented or implemented but not verified in this release.
 * Tag writing covers title, artist, album, album artist, date, genre, track and disc for formats that
   mutagen's "easy" interface supports (MP3, FLAC, M4A, Ogg Vorbis, Opus). WAV/AIFF/WMA tag writing
   fails safely (file unchanged, reported).
+* Embedded video tags are read from MP4/M4V/MOV only; MKV/AVI use filenames and NFO sidecars.
+* Game-folder protection is a heuristic, not a complete game database. Add unrecognized games/save folders to Exclusions.
+* Duplicate finding compares exact bytes, omits empty files and leaves hard links alone.
 * Duplicate removal moves extra copies to a quarantine folder (undoable); emptying the quarantine is
   left to the user.
 * Undo works per run; undoing an undo is not supported (preview and apply again instead).

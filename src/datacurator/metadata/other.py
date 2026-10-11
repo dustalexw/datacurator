@@ -64,6 +64,18 @@ def read_nfo(path: str) -> dict[str, Any]:
         el = root.find(name)
         return el.text.strip() if el is not None and el.text and el.text.strip() else None
     out: dict[str, Any] = {"_source": "nfo", "nfo_type": tag}
+    for name in ("plot", "outline", "premiered", "studio", "mpaa"):
+        if value := t(name):
+            out[name] = value
+    genres = [el.text.strip() for el in root.findall("genre") if el.text and el.text.strip()]
+    if genres:
+        out["genres"] = genres
+    if (runtime := t("runtime")) and runtime.isdigit():
+        out["runtime"] = int(runtime)
+    for unique in root.findall("uniqueid"):
+        provider = (unique.get("type") or "").lower()
+        if unique.text and unique.text.strip() and provider in ("tmdb", "tvmaze", "imdb"):
+            out[provider + "_id"] = unique.text.strip()
     if tag == "tvshow":
         out["series"] = t("title")
         if (y := t("year")) and y.isdigit():
@@ -74,7 +86,8 @@ def read_nfo(path: str) -> dict[str, Any]:
         if (s := t("season")) and s.lstrip("-").isdigit():
             out["season"] = int(s)
         if (e := t("episode")) and e.isdigit():
-            out["episodes"] = [int(e)]
+            out["episodes"] = [int(el.text.strip()) for el in root.findall("episode")
+                               if el.text and el.text.strip().isdigit()]
         if a := t("aired"):
             out["air_date"] = a
     elif tag == "movie":

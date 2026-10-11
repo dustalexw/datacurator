@@ -16,7 +16,7 @@ from typing import Any, Iterable, Iterator
 from ..models import FileRecord
 
 SCHEMA_VERSION = 1
-META_VERSION = 4  # re-read cached HEIC/HEIF failures with the new metadata reader
+META_VERSION = 5  # re-read expanded NFO and embedded video metadata
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta_info(key TEXT PRIMARY KEY, value TEXT);

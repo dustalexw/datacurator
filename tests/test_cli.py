@@ -1,6 +1,7 @@
 """The CLI drives the same engine; every documented command runs."""
 import json
 import os
+import sqlite3
 
 import pytest
 
@@ -20,8 +21,16 @@ def cli(tmp_path, monkeypatch):
 
 def latest_plan(tmp_path):
     d = tmp_path / "app/plans"
-    names = sorted((f for f in os.listdir(d) if f.endswith(".sqlite")), key=lambda f: os.stat(d / f).st_ctime_ns)
-    return names[-1][len("plan-"):-len(".sqlite")]
+    def created(name):
+        # Opening/checkpointing a prior plan can update filesystem ctime. Use its saved creation time.
+        db = sqlite3.connect(d / name)
+        try:
+            return json.loads(db.execute("SELECT value FROM header WHERE key='created'").fetchone()[0])
+        finally:
+            db.close()
+    name = max((f for f in os.listdir(d) if f.endswith(".sqlite")), key=created)
+    return name[len("plan-"):-len(".sqlite")]
+
 
 
 def test_full_cli_workflow(cli, tmp_path, capsys):

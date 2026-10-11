@@ -75,6 +75,8 @@ jobs:
           "dist/Data Curator.app/Contents/MacOS/curator" --data-dir /tmp/dc probe /tmp
       - name: Verify packaged HEIC and PDF moves and undo
         run: python scripts/check_photo_document_bundle.py "dist/Data Curator.app/Contents/MacOS/curator"
+      - name: Verify packaged folder rules, game protections and duplicate quarantine
+        run: python scripts/check_organization_bundle.py "dist/Data Curator.app/Contents/MacOS/curator"
       - name: Smoke test the built app starts
         env:
           QT_QPA_PLATFORM: offscreen

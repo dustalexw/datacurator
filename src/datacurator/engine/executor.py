@@ -146,6 +146,7 @@ class Executor:
         self._moved: list[tuple[str, str]] = []
         self._src_dirs: set[str] = set()
         self._last_check: dict[str, float] = {}
+        self._keeper_hashes = {}
 
     def partial_for(self, op: Op) -> str | None:
         """A partial copy kept from an interrupted run of the same item (resumable transfer)."""
@@ -243,6 +244,8 @@ class Executor:
         if sig and (st.st_size != sig.get("size") or st.st_mtime_ns != sig.get("mtime_ns") or
                     st.st_ino != sig.get("ino")):
             return "the file changed since it was scanned; scan again"
+        if why := self._check_duplicate(it):
+            return why
         if not it.dest or not it.dest_root:
             return "no destination"
         if not is_within(it.dest, it.dest_root) or not is_within_real(it.dest, it.dest_root):
@@ -259,6 +262,24 @@ class Executor:
             base = os.path.dirname(base)
         if not os.access(base, os.W_OK | os.X_OK):
             return f"no permission to write in {base}"
+        return None
+
+    def _check_duplicate(self, it):
+        if it.action == Action.QUARANTINE.value and it.payload.get("keeper"):
+            keeper = it.payload["keeper"]
+            try:
+                ks = os.stat(keeper, follow_symlinks=False)
+                saved = it.payload.get("keeper_sig", {})
+                current = {"size": ks.st_size, "mtime_ns": ks.st_mtime_ns, "ino": ks.st_ino, "dev": ks.st_dev}
+                if os.path.islink(keeper) or current != saved:
+                    return "the retained copy changed; find duplicates again"
+                key = (keeper, ks.st_size, ks.st_mtime_ns, ks.st_ino, ks.st_dev)
+                if key not in self._keeper_hashes:
+                    self._keeper_hashes[key] = hash_file(keeper)
+                if self._keeper_hashes[key] != it.content_hash or hash_file(it.source) != it.content_hash:
+                    return "the copies no longer have identical content; find duplicates again"
+            except OSError:
+                return "the retained copy is no longer readable; find duplicates again"
         return None
 
     # ---------------------------------------------------------------- run
@@ -487,6 +508,8 @@ class Executor:
         try:
             self._check_root(it.dest_root)
             self._verify_source(it, src) if not staged_from else None
+            if why := self._check_duplicate(it):
+                raise SourceChanged(why)
             if self.fs.exists_entry(it.dest):
                 if not (self.fs.samefile(it.dest, src) or same_entry(it.dest, src)):
                     raise FileExistsError(errno.EEXIST, "destination exists", it.dest)

@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 from typing import Any
 
 from .models import CuratorError
@@ -99,10 +100,18 @@ DEFAULT_PROFILE: dict[str, Any] = {
     "detect_duplicates": True,
     "preservation": {"block_lossy": False},
     "cleanup_empty_dirs": False,
-    "scan": {"follow_symlinks": False, "cross_mounts": False, "include_hidden": False},
+    "scan": {"follow_symlinks": False, "cross_mounts": False, "include_hidden": False,
+             "exclude_games": True, "exclude_dirs": []},
+    "extension_folders": {"enabled": False, "folders": {
+        ".pdf": "PDF", ".doc": "Word", ".docx": "Word", ".odt": "Word",
+        ".xls": "Spreadsheets", ".xlsx": "Spreadsheets", ".csv": "Spreadsheets",
+        ".ppt": "Presentations", ".pptx": "Presentations", ".epub": "Books",
+        ".zip": "Archives", ".7z": "Archives", ".rar": "Archives", ".tar": "Archives",
+        ".gz": "Archives", ".dmg": "Installers", ".pkg": "Installers", ".exe": "Installers"}},
+    "dedupe": {"quarantine_dir": "", "prefer_root": ""},
     "unattended": {"enabled": False},
     "network": {"max_concurrent_transfers": 1, "retries": 4},
-    "providers": {"tv": "none"},
+    "providers": {"tv": "none", "movies": "none"},
 }
 
 
@@ -131,6 +140,35 @@ def normalize(profile: dict) -> dict:
     raw_cats = (profile or {}).get("categories", {}) or {}
     prof = _merge(DEFAULT_PROFILE, profile or {})
     problems: list[str] = []
+    raw_extensions = (profile or {}).get("extension_folders") or {}
+    folders = raw_extensions.get("folders", prof["extension_folders"].get("folders", {}))
+    if not isinstance(folders, dict):
+        problems.append("Extension folders must be a mapping of extensions to relative folders.")
+    else:
+        normalized = {}
+        for ext, folder in folders.items():
+            ext = str(ext).strip().lower()
+            ext = ext if ext.startswith(".") else "." + ext
+            folder = str(folder).strip().replace("\\", "/")
+            if not re.fullmatch(r"\.[a-z0-9]+", ext):
+                problems.append(f"Invalid extension: {ext}")
+            elif not folder or folder.startswith("/") or ":" in folder or any(
+                    part in ("", ".", "..") for part in folder.split("/")) or "{" in folder or "}" in folder:
+                problems.append(f"{ext}: use a plain relative subfolder such as PDF or Documents/PDF.")
+            else:
+                normalized[ext] = folder
+        # Explicit maps replace the example defaults, rather than merging deleted rules back in.
+        prof["extension_folders"]["folders"] = normalized
+    excluded = prof["scan"].get("exclude_dirs", [])
+    if not isinstance(excluded, list):
+        problems.append("Excluded folders must be a list of folder paths.")
+    else:
+        prof["scan"]["exclude_dirs"] = [os.path.abspath(os.path.expanduser(str(p))) for p in excluded if str(p).strip()]
+    for field in ("quarantine_dir", "prefer_root"):
+        if prof["dedupe"].get(field):
+            prof["dedupe"][field] = os.path.abspath(os.path.expanduser(prof["dedupe"][field]))
+    if prof["providers"].get("tv") not in ("none", "tvmaze") or prof["providers"].get("movies") not in ("none", "tmdb"):
+        problems.append("Use TVmaze for TV lookup and TMDB for movie lookup, or none for offline only.")
     for cat, cfg in prof["categories"].items():
         if cat not in PRESETS:
             problems.append(f"Unknown category '{cat}'")
@@ -182,3 +220,15 @@ def check_unattended(profile: dict) -> None:
     if u.get("conflict_policy") not in ("skip", "alternate"):
         raise CuratorError("Unattended profiles must define unattended.conflict_policy as 'skip' or "
                            "'alternate' (review is not possible without a person).")
+
+
+def mixed_in_source_profile(sources=()):
+    """A reusable starting layout for sorting mixed files within their source folders."""
+    folders = {**DEFAULT_PROFILE["extension_folders"]["folders"],
+        ".mp3": "Music/MP3", ".flac": "Music/FLAC", ".m4a": "Music/AAC",
+        ".heic": "Photos/HEIC", ".heif": "Photos/HEIF", ".jpg": "Photos/JPEG",
+        ".jpeg": "Photos/JPEG", ".png": "Photos/PNG", ".mp4": "Videos/MP4",
+        ".m4v": "Videos/M4V", ".mkv": "Videos/MKV", ".mov": "Videos/MOV"}
+    return normalize({"name": "Mixed files inside each source", "sources": list(sources),
+        "categories": {"photos": {"enabled": True}, "documents": {"enabled": True}},
+        "extension_folders": {"enabled": True, "folders": folders}})

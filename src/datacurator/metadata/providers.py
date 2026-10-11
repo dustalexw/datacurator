@@ -1,9 +1,8 @@
 """Optional, replaceable online metadata providers.
 
-Organization works fully offline; a provider only *adds* episode titles when the
-user enables it. Every value it contributes is labelled with its provenance, and
+Organization works fully offline; an enabled provider fills missing video details. Every value it contributes is labelled with its provenance, and
 ambiguous matches are never auto-picked: they go to the review queue with the
-candidates for the user to choose (override ``series_id``).
+candidates for the user to choose (override ``series_id`` or ``movie_id``).
 
 Responses are cached in the catalog so repeated plans do not repeat requests,
 and requests are rate-limited.
@@ -11,6 +10,7 @@ and requests are rate-limited.
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
@@ -64,6 +64,8 @@ def choose(cands: list[Candidate], name: str, year: int | None) -> Match:
         exact_y = [c for c in exact if c.year == year]
         if len(exact_y) == 1:
             return Match(exact_y[0], cands, "exact name and year")
+        if exact:
+            return Match(None, exact[:6], "year does not uniquely match")
     if len(exact) == 1:
         return Match(exact[0], cands, "exact name")
     if not cands:
@@ -127,6 +129,7 @@ class TVMazeProvider:
             if ep.get("type") == "significant_special" or n is None:
                 continue
             out[f"S{s}E{n}"] = {"title": title, "airdate": ep.get("airdate")}
+            out[f"S{s}E{n}"].update(runtime=ep.get("runtime"), plot=ep.get("summary"))
             if ep.get("airdate"):
                 out.setdefault(f"D{ep['airdate']}", {"title": title, "season": s, "episode": n})
         return out
@@ -164,3 +167,62 @@ def make_tv_provider(name: str | None, catalog=None, transport=None):
     if cls is None:
         raise ValueError(f"Unknown TV metadata provider {name!r}")
     return cls(transport=transport, cache=CatalogCache(catalog) if catalog is not None else None)
+
+
+def store_tmdb_token(token):
+    import keyring
+    keyring.set_password("DataCurator", "TMDB-read-token", token.strip())
+
+
+class TMDBMovieProvider(TVMazeProvider):
+    """Optional TMDB movie lookup; the user's read token stays in the OS credential store."""
+    name = "tmdb"
+    base = "https://api.themoviedb.org/3"
+
+    def _http(self, url):  # pragma: no cover - network
+        token = os.environ.get("DATACURATOR_TMDB_TOKEN")
+        if not token:
+            try:
+                import keyring
+                token = keyring.get_password("DataCurator", "TMDB-read-token")
+            except Exception:
+                token = None
+        if not token:
+            raise ValueError("Set a TMDB API Read Access Token in Video metadata settings.")
+        request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}",
+                                                        "User-Agent": "DataCurator", "Accept": "application/json"})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def search(self, title):
+        out = []
+        path = "/search/movie?" + urllib.parse.urlencode({"query": title, "include_adult": "false"})
+        for page in range(1, 4):
+            data = self._get(path + f"&page={page}") or {}
+            for movie in data.get("results", []):
+                date = movie.get("release_date") or ""
+                out.append(Candidate(self.name, str(movie["id"]), movie.get("title") or "",
+                                     int(date[:4]) if date[:4].isdigit() else None,
+                                     (movie.get("overview") or "")[:180]))
+            pages = int(data.get("total_pages") or 1)
+            if page >= pages:
+                return out
+        raise ValueError("Too many possible movies. Set a movie ID to choose the correct one.")
+
+    def details(self, movie_id):
+        if not str(movie_id).isdigit():
+            raise ValueError("TMDB movie IDs must be numeric.")
+        movie = self._get(f"/movie/{movie_id}") or {}
+        date = movie.get("release_date") or ""
+        return {"title": movie.get("title"), "year": int(date[:4]) if date[:4].isdigit() else None,
+                "plot": movie.get("overview"), "runtime": movie.get("runtime"),
+                "genres": [g["name"] for g in movie.get("genres", []) if g.get("name")],
+                "tmdb_id": str(movie_id), "imdb_id": movie.get("imdb_id")}
+
+
+def make_movie_provider(name, catalog=None, transport=None):
+    if not name or name == "none":
+        return None
+    if name != "tmdb":
+        raise ValueError(f"Unknown movie provider: {name}")
+    return TMDBMovieProvider(transport=transport, cache=CatalogCache(catalog) if catalog else None)

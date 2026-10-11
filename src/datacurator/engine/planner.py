@@ -16,6 +16,7 @@ from typing import Any, Callable
 
 from ..metadata.audio import primary_artist, year_of
 from ..metadata.video import (episode_code, parse_movie, parse_tv, subtitle_suffix)
+from ..metadata.video import movie_search_hint
 from ..models import (ALT_AUDIO_EXT, HEIF_EXT, Action, Category, FileRecord, Flag, Kind, PlanItem)
 from ..naming.sanitize import NamingRules, equivalence_key, sanitize_component
 from ..naming.template import Template
@@ -23,6 +24,7 @@ from ..storage.capabilities import Capabilities, inspect, volume_identity
 from ..storage.catalog import Catalog
 from .planstore import PlanStore
 from .scanner import normalize_roots
+from .exclusions import DirectoryExclusions
 from .util import DirListingCache, hash_file, is_within, same_entry, stat_sig
 
 VARIOUS = {"various artists", "various", "va", "v.a.", "v/a", "varios artistas", "verschiedene interpreten",
@@ -85,7 +87,7 @@ class Planner:
     def __init__(self, profile: dict, catalog: Catalog, plans_dir: str,
                  progress: Callable[[str, int], None] | None = None,
                  cancel: threading.Event | None = None,
-                 caps_override: dict[str, Capabilities] | None = None, tv_provider=None):
+                 caps_override: dict[str, Capabilities] | None = None, tv_provider=None, movie_provider=None):
         self.p = profile
         self.cat = catalog
         self.plans_dir = plans_dir
@@ -98,6 +100,9 @@ class Planner:
                     for c, v in self.cfg.items()}
         self.overrides = catalog.overrides()
         self.excluded = catalog.exclusions()
+        self.dir_exclusions = DirectoryExclusions(profile.get("scan"))
+        ef = profile.get("extension_folders") or {}
+        self.extension_folders = ef.get("folders", {}) if ef.get("enabled") else {}
         self.listing = DirListingCache()
         self._ctx: dict[str, _Ctx] = {}
         self._caps_override = caps_override or {}
@@ -114,6 +119,13 @@ class Planner:
             from ..metadata.providers import make_tv_provider
             tv_provider = make_tv_provider((profile.get("providers") or {}).get("tv"), catalog)
         self.tv_provider = tv_provider
+        if movie_provider is None:
+            from ..metadata.providers import make_movie_provider
+            movie_provider = make_movie_provider((profile.get("providers") or {}).get("movies"), catalog)
+        self.movie_provider = movie_provider
+        self._movie_matches = {}
+        self._movie_details = {}
+        self._nfo_index = {}
         self._matches: dict[tuple, Any] = {}
         self._episodes: dict[str, dict] = {}
 
@@ -232,7 +244,8 @@ class Planner:
         return cur, None
 
     def build_path(self, category: str, rec: FileRecord, folder_vals: dict, file_vals: dict,
-                   *, keep_name: bool = False, new_name: str | None = None, mode: str | None = None) -> _Built:
+                   *, keep_name: bool = False, new_name: str | None = None, mode: str | None = None,
+                   folder_override: str | None = None) -> _Built:
         cfg = self.cfg[category]
         mode = mode or cfg["mode"]
         ftpl, ntpl = self.tpl[category]
@@ -246,7 +259,14 @@ class Planner:
             comps: list[str] = []
         else:
             root = self.dest_root(category, rec)
-            comps, miss = ftpl.render_folder(folder_vals)
+            if folder_override is not None:
+                comps, miss = folder_override.split("/"), []
+            else:
+                comps, miss = ftpl.render_folder(folder_vals)
+                # Explicit audio/video extension folders become a prefix to the media layout.
+                prefix = self.extension_folders.get(ext.lower()) if category in ("music", "tv", "movies") else None
+                if prefix:
+                    comps = prefix.split("/") + comps
             missing += miss
         ctx = self.ctx(root)
         caps = ctx.caps
@@ -382,6 +402,8 @@ class Planner:
         n = 0
         for d, recs in self.cat.iter_dirs(self.sources):
             self._check_cancel()
+            if self.dir_exclusions.reason(d):
+                continue
             self._pass_a(d, recs)
             n += len(recs)
         self._finalize_albums()
@@ -389,6 +411,11 @@ class Planner:
         n = 0
         for d, recs in self.cat.iter_dirs(self.sources):
             self._check_cancel()
+            if reason := self.dir_exclusions.reason(d):
+                for r in recs:
+                    store.add(self.make_item(r, "other", None, reason + ": left in place.",
+                                            action=Action.SKIP.value, flags=[Flag.EXCLUDED.value]))
+                continue
             self._plan_dir(d, recs)
             n += len(recs)
             if self.progress:
@@ -445,7 +472,7 @@ class Planner:
             ext = os.path.splitext(name)[1].lower()
             category = ("photos" if r.kind == Kind.IMAGE.value and ext in HEIF_EXT else
                         "documents" if r.kind == Kind.DOCUMENT.value and ext == ".pdf" else None)
-            if category and self.cfg[category]["enabled"]:
+            if category and (self.cfg[category]["enabled"] or ext in self.extension_folders):
                 if r not in extra:
                     out[category].append(r)
                 continue
@@ -484,7 +511,10 @@ class Planner:
                 if self.cfg["music"]["enabled"]:
                     out["audio"].append(r)
                 else:
-                    out["skip"].append((r, "music organizing is turned off"))
+                    if os.path.splitext(name)[1].lower() in self.extension_folders:
+                        out["other"].append(r)
+                    else:
+                        out["skip"].append((r, "music organizing is turned off"))
             elif has_audio and r.kind in (Kind.IMAGE.value, Kind.CUE.value, Kind.PLAYLIST.value, Kind.TEXT.value,
                                           Kind.NFO.value) or (has_audio and r.kind == Kind.DOCUMENT.value
                                                              and name.lower().endswith(".pdf")):
@@ -924,9 +954,12 @@ class Planner:
             o = self._ovr(v)
             forced = o.get("category")
             info = parse_tv(stem, parents) if forced in (None, "tv") else None
+            nfo = self._nfo_for(v)
+            local = {**(v.meta or {}), **{k: value for k, value in nfo.items() if value is not None}}
+            if info is None and forced != "movies" and (local.get("episodes") or local.get("season") is not None):
+                info = {"pattern": "override", "episodes": [], **local}
             if forced == "tv" and info is None:
                 info = {"pattern": "override", "episodes": []}
-            nfo = self._nfo_for(v)
             if info is not None and self.cfg["tv"]["enabled"] and forced != "movies":
                 it = self._plan_episode(v, info, o, nfo)
                 if it.dest and it.action in (Action.MOVE.value, Action.NONE.value):
@@ -936,12 +969,22 @@ class Planner:
                     series_dirs.add(sd)
             else:
                 minfo = parse_movie(stem, parents) if forced in (None, "movies") else None
+                if minfo is None and forced != "tv" and (local.get("nfo_type") == "movie" or
+                                                         local.get("title") and local.get("year")):
+                    minfo = {**local, "title_source": "local .nfo" if nfo.get("nfo_type") == "movie" else "embedded MP4 tags"}
                 if forced == "movies" and minfo is None:
                     minfo = {}
+                if o.get("movie_id") and minfo is None:
+                    minfo = {"title": movie_search_hint(stem), "title_source": "filename query"}
+                if minfo is None and info is None and forced != "tv" and self.movie_provider:
+                    if query := movie_search_hint(stem):
+                        minfo = {"title": query, "title_source": "filename query"}
                 if minfo is not None and self.cfg["movies"]["enabled"]:
                     it = self._plan_movie(v, minfo, o, nfo)
                     if it.dest and it.action in (Action.MOVE.value, Action.NONE.value):
                         movie_dirs.add(os.path.dirname(it.dest))
+                elif os.path.splitext(v.path)[1].lower() in self.extension_folders:
+                    it = self._extension_item("other", v)
                 elif info is not None or minfo is not None:
                     which = "TV" if info is not None else "movie"
                     it = self.make_item(v, "tv" if info is not None else "movies", None,
@@ -952,6 +995,8 @@ class Planner:
                                         "pattern and no year. Choose a category or set a title and year.",
                                         flags=[Flag.UNCERTAIN.value],
                                         suggestions={"category": "tv or movies"})
+            if "metadata" not in it.payload and it.category in ("tv", "movies"):
+                it.payload["metadata"] = {**local, **((info if it.category == "tv" else minfo) or {})}
             store.add(it)
             items[v.path] = it
         for path, (r, video, suffix) in sorted(vcomp.items()):
@@ -972,22 +1017,52 @@ class Planner:
                                          "or nothing here is being organized.", action=Action.SKIP.value))
         return list(items.values())
 
+    def _nfo_record(self, path):
+        record = self.cat.get(path)
+        if record:
+            return record
+        directory, name = os.path.split(path)
+        if directory not in self._nfo_index:
+            index = {}
+            for candidate in self.cat.dir_index(directory):
+                if candidate.casefold().endswith(".nfo"):
+                    index.setdefault(candidate.casefold(), []).append(candidate)
+            self._nfo_index[directory] = index
+        matches = self._nfo_index[directory].get(name.casefold(), [])
+        return self.cat.get(os.path.join(directory, matches[0])) if len(matches) == 1 else None
+
     def _nfo_for(self, v: FileRecord) -> dict:
         nfo_path = os.path.splitext(v.path)[0] + ".nfo"
-        rec = self.cat.get(nfo_path)
+        rec = self._nfo_record(nfo_path)
         meta = dict(rec.meta) if rec and rec.meta else {}
-        show = self.cat.get(os.path.join(os.path.dirname(v.path), "tvshow.nfo")) or \
-            self.cat.get(os.path.join(os.path.dirname(os.path.dirname(v.path)), "tvshow.nfo"))
+        if not meta:
+            movie = self._nfo_record(os.path.join(os.path.dirname(v.path), "movie.nfo"))
+            with self.cat._lock:
+                video_count = self.cat.db.execute("SELECT COUNT(*) FROM files WHERE dir=? AND kind=?",
+                    (os.path.dirname(v.path), Kind.VIDEO.value)).fetchone()[0]
+            if movie and movie.meta.get("nfo_type") == "movie" and video_count == 1:
+                meta = dict(movie.meta)
+        show = self._nfo_record(os.path.join(os.path.dirname(v.path), "tvshow.nfo")) or \
+            self._nfo_record(os.path.join(os.path.dirname(os.path.dirname(v.path)), "tvshow.nfo"))
         if show and show.meta.get("nfo_type") == "tvshow":
-            meta.setdefault("series", show.meta.get("series"))
+            if not meta.get("series"):
+                meta["series"] = show.meta.get("series")
             if show.meta.get("series_year"):
                 meta.setdefault("series_year", show.meta.get("series_year"))
         return meta
 
     def _plan_episode(self, v: FileRecord, info: dict, o: dict, nfo: dict) -> PlanItem:
         cfg = self.cfg["tv"]
-        prov: dict[str, str] = {}
+        prov: dict[str, str] = {k: info["_source"] for k in ("series", "series_year", "season", "episode_title")
+                                if info.get("_source") and info.get(k) is not None}
         info = dict(info)
+        for k in ("series", "series_year", "season", "episode_title", "episodes"):
+            if info.get(k) in (None, "", []) and (v.meta or {}).get(k) is not None:
+                info[k] = v.meta[k]
+                prov["episode" if k == "episodes" else k] = "embedded MP4 tags"
+        for k in ("series", "series_year", "season", "episode_title", "episodes"):
+            if k in info and k in nfo and info[k] == nfo[k]:
+                prov["episode" if k == "episodes" else k] = "local .nfo"
         for k in ("series", "series_year", "season", "episode_title"):
             if nfo.get(k) is None:
                 continue
@@ -997,6 +1072,11 @@ class Planner:
         if nfo.get("episodes") and not info.get("episodes") and info.get("pattern") != "date":
             info["episodes"] = nfo["episodes"]
             prov["episode"] = "local .nfo"
+        for local, source in ((v.meta or {}, "embedded MP4 tags"), (nfo, "local .nfo")):
+            for key in ("plot", "outline", "runtime", "genres", "studio", "mpaa", "tmdb_id", "tvmaze_id", "imdb_id"):
+                if local.get(key) is not None:
+                    info[key] = local[key]
+                    prov[key] = source
         for k in ("series", "episode_title"):
             if k in o:
                 info[k] = o[k]
@@ -1052,7 +1132,7 @@ class Planner:
                                       flags=[Flag.UNCERTAIN.value],
                                       suggestions={"series_year": " or ".join(map(str, sorted(s["years"])))})
         if self.tv_provider is not None and info.get("pattern") in ("SxxEyy", "NxNN", "date", "override"):
-            r = self._enrich(series, year, o.get("series_id"), info, prov)
+            r = self._enrich(series, year, o.get("series_id") or nfo.get("tvmaze_id"), info, prov)
             if r is not None:
                 return self.make_item(v, "tv", None, r[0], group=f"tv:{norm(series)}", flags=[Flag.UNCERTAIN.value],
                                       provenance=prov, suggestions=r[1])
@@ -1076,7 +1156,9 @@ class Planner:
         if info.get("season") == 0:
             reason += " — special, filed under Season 00"
         reason += "."
-        return self.make_item(v, "tv", built, reason, group=f"tv:{norm(series)}", provenance=prov)
+        item = self.make_item(v, "tv", built, reason, group=f"tv:{norm(series)}", provenance=prov)
+        item.payload["metadata"] = {**(v.meta or {}), **nfo, **info, "series": series, "episode_code": code}
+        return item
 
     def _enrich(self, series: str, year: int | None, series_id: str | None, info: dict, prov: dict):
         """Fill a missing episode title from the optional provider. Returns (reason, suggestions)
@@ -1113,6 +1195,11 @@ class Planner:
             if hit and hit.get("title") and not info.get("episode_title"):
                 info["episode_title"] = hit["title"]
                 prov["episode_title"] = f"{pv.name} (show {cand.id}, {cand.label()})"
+            if hit:
+                for field in ("runtime", "plot", "airdate"):
+                    if hit.get(field) and not info.get(field):
+                        info[field] = hit[field]
+                        prov[field] = pv.name
         except Exception as e:  # network or parse errors: stay offline, say so
             prov["episode_title"] = prov.get("episode_title", "filename") + \
                 f"; {getattr(pv, 'name', 'provider')} unavailable ({e.__class__.__name__})"
@@ -1121,6 +1208,16 @@ class Planner:
     def _plan_movie(self, v: FileRecord, info: dict, o: dict, nfo: dict) -> PlanItem:
         prov = {"title": info.get("title_source", "filename"), "year": info.get("title_source", "filename")}
         info = dict(info)
+        for key, value in (v.meta or {}).items():
+            if value is not None and info.get(key) in (None, ""):
+                info[key] = value
+                prov[key] = "embedded MP4 tags"
+        for key, value in nfo.items():
+            if value is not None and key not in ("title", "year"):
+                if info.get(key) in (None, "", []):
+                    info[key] = value
+                if info[key] == value:
+                    prov[key] = "local .nfo"
         if nfo.get("nfo_type") == "movie":
             for k in ("title", "year"):
                 if nfo.get(k):
@@ -1133,13 +1230,19 @@ class Planner:
         if "year" in o and o["year"].isdigit():
             info["year"] = int(o["year"])
             prov["year"] = "your override"
+        if self.movie_provider and (info.get("title") or o.get("movie_id") or info.get("tmdb_id")):
+            decision = self._enrich_movie(info, o, prov)
+            if decision:
+                reason, suggestions = decision
+                return self.make_item(v, "movies", None, reason, flags=[Flag.UNCERTAIN.value],
+                                      provenance=prov, suggestions=suggestions, group=f"movie:{v.path}")
         stem, ext = os.path.splitext(os.path.basename(v.path))
         part = None
         if m := PART_RE.search(stem):
             part = int(m.group(1))
         if not info.get("title") or not info.get("year"):
             return self.make_item(v, "movies", None, "Movie title or year is unknown.", flags=[Flag.UNCERTAIN.value],
-                                  group=f"movie:{v.path}")
+                                  group=f"movie:{v.path}", provenance=prov)
         vals = {"title": info["title"], "year": info["year"], "edition": info.get("edition"),
                 "resolution": info.get("resolution"), "source": info.get("source"), "codec": info.get("codec"),
                 "original_name": stem, "ext": ext, "extension": ext}
@@ -1148,8 +1251,48 @@ class Planner:
             d, n = os.path.split(built.dest)
             s, e = os.path.splitext(n)
             built.dest = os.path.join(d, f"{s} - part{part}{e}")
-        return self.make_item(v, "movies", built, f"Movie “{info['title']}” ({info['year']}).",
+        item = self.make_item(v, "movies", built, f"Movie “{info['title']}” ({info['year']}).",
                               group=f"movie:{norm(info['title'])}:{info['year']}", provenance=prov)
+        item.payload["metadata"] = info
+        return item
+
+    def _enrich_movie(self, info, overrides, provenance):
+        from ..metadata.providers import Candidate, choose
+        provider = self.movie_provider
+        movie_id = overrides.get("movie_id") or info.get("tmdb_id")
+        try:
+            key = (info.get("title"), info.get("year"), movie_id)
+            if key not in self._movie_matches:
+                if movie_id:
+                    ref = str(movie_id).split(":", 1)[-1]
+                    if not ref.isdigit() or (":" in str(movie_id) and not str(movie_id).startswith(provider.name + ":")):
+                        raise ValueError("Use a TMDB movie ID, e.g. tmdb:123.")
+                    self._movie_matches[key] = Candidate(provider.name, ref, info.get("title") or "", info.get("year"))
+                else:
+                    match = choose(provider.search(info["title"]), info["title"], info.get("year"))
+                    self._movie_matches[key] = match.chosen or match
+            candidate = self._movie_matches[key]
+            if not isinstance(candidate, Candidate):
+                if candidate.candidates:
+                    return ("Movie lookup needs a choice: " + candidate.reason + ". Choose the correct movie.",
+                            {"movie_id": " or ".join(c.ref for c in candidate.candidates),
+                             "_candidates": [c.label() for c in candidate.candidates]})
+                provenance["lookup"] = provider.name + ": no match"
+                return None
+            if candidate.id not in self._movie_details:
+                self._movie_details[candidate.id] = provider.details(candidate.id)
+            for field, value in self._movie_details[candidate.id].items():
+                if value and (info.get(field) in (None, "", []) or
+                              field == "title" and info.get("title_source") == "filename query"):
+                    if field == "title":
+                        info["title_source"] = provider.name + ":" + candidate.id
+                    info[field] = value
+                    provenance[field] = provider.name + ":" + candidate.id
+        except Exception as error:
+            provenance["lookup"] = provider.name + " unavailable (" + error.__class__.__name__ + ")"
+            if isinstance(error, ValueError):
+                provenance["lookup"] += ": " + str(error)
+        return None
 
     def _plan_video_companion(self, r: FileRecord, parent: PlanItem, suffix: str) -> None:
         store = self.store
@@ -1172,9 +1315,19 @@ class Planner:
                                      else Action.SKIP.value, group=parent.group))
 
     # ------------------------------------------------------------------ simple categories
+    def _extension_item(self, cat, r):
+        folder = self.extension_folders[os.path.splitext(r.path)[1].lower()]
+        built = self.build_path(cat, r, {}, {}, keep_name=True, mode="move", folder_override=folder)
+        return self.make_item(r, cat, built, f"Extension rule: organize into {folder}.",
+                              provenance={"folder": "your extension rule"})
+
     def _plan_simple(self, cat: str, r: FileRecord) -> None:
         store = self.store
         cfg = self.cfg[cat]
+        folder = self.extension_folders.get(os.path.splitext(r.path)[1].lower())
+        if folder:
+            store.add(self._extension_item(cat, r))
+            return
         if not cfg.get("enabled"):
             store.add(self.make_item(r, cat, None, f"Left in place: {cat} organizing is turned off.",
                                      action=Action.SKIP.value))

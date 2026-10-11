@@ -13,9 +13,11 @@ pytestmark = pytest.mark.gui
 
 
 @pytest.fixture(scope="module")
-def app():
+def app(tmp_path_factory):
     from PySide6.QtCore import QSettings
     from PySide6.QtWidgets import QApplication
+    QSettings.setDefaultFormat(QSettings.IniFormat)
+    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp_path_factory.mktemp("gui-settings")))
     QSettings("DataCurator", "DataCurator").clear()
     a = QApplication.instance() or QApplication([])
     yield a
@@ -190,4 +192,91 @@ def test_destinations_enable_photos_documents_and_preserve_loaded_disabled_rules
                         staticmethod(lambda *a: str(tmp_path / "Documents")))
     w.browse_dest("documents")  # choosing the existing destination also enables its rule
     assert w.current_profile()["categories"]["documents"]["enabled"]
+    w.close()
+
+
+def test_extension_exclusion_video_controls_and_duplicate_quarantine(app, engine, lib, tmp_path, monkeypatch):
+    from datacurator.gui.app import MainWindow
+    from datacurator import profiles
+    from PySide6.QtWidgets import QMessageBox
+    for folder in ("a", "keep", "steamapps"):
+        make_file(str(lib / folder / "same.pdf"), b"same PDF")
+    p = profiles.normalize({"sources": [str(lib)], "dedupe": {"prefer_root": str(lib / "keep")},
+                           "extension_folders": {"enabled": True, "folders": {".pdf": "PDF"}}})
+    w = MainWindow(engine)
+    w._load_profile_into_ui(p)
+    assert w.extension_rules.enabled.isChecked()
+    assert w.extension_rules.table.rowCount() == 1
+    assert w.exclusions.games.isChecked()
+    assert w.current_profile()["providers"] == {"tv": "none", "movies": "none"}
+    w.video_metadata.movies.setCurrentIndex(w.video_metadata.movies.findData("tmdb"))
+    assert w.current_profile()["providers"]["movies"] == "tmdb"
+    w.video_metadata.movies.setCurrentIndex(0)
+    assert w.current_profile()["extension_folders"]["folders"] == {".pdf": "PDF"}
+    w.steps.setCurrentRow(5)
+    w.duplicate_page.kind.setCurrentIndex(w.duplicate_page.kind.findData("document"))
+    w.find_duplicates()
+    pump(app, w)
+    page = w.duplicate_page
+    assert page.model.rowCount() == 1 and "1 protected" in page.summary.text()
+    assert next(page.store.items()).payload["keeper"] == str(lib / "keep/same.pdf")
+    page.table.selectAll()
+    assert page.apply_btn.isEnabled()
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Apply))
+    w.quarantine_duplicates()
+    pump(app, w)
+    assert (lib / "keep/same.pdf").exists() and not (lib / "a/same.pdf").exists()
+    assert (lib / "steamapps/same.pdf").exists() and page.store is None
+    w.history.selectRow(0)
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    w.undo_selected()
+    pump(app, w)
+    assert (lib / "a/same.pdf").exists()
+    w.find_duplicates()
+    pump(app, w)
+    page.table.selectAll()
+    w.exclusions.games.setChecked(False)
+    assert page.store is None and not page.apply_btn.isEnabled()
+    w.close()
+
+
+def test_movie_lookup_review_choose_match(app, engine, lib, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+    from datacurator.gui.app import MainWindow
+    from datacurator.metadata.providers import Candidate
+    movie = make_file(str(lib / "Dune.mkv"))
+    class Provider:
+        name = "tmdb"
+        def search(self, name):
+            return [Candidate("tmdb", "1", "Dune", 1984), Candidate("tmdb", "2", "Dune", 2021)]
+        def details(self, ref):
+            return {"title": "Dune", "year": 2021, "plot": "Online plot"}
+    monkeypatch.setattr("datacurator.metadata.providers.make_movie_provider", lambda *a: Provider())
+    w = MainWindow(engine);w.sources.addItem(str(lib));w.scan_and_preview();pump(app, w)
+    assert w.model.rowCount() == 1 and w.filter.currentData() == "review"
+    w.table.selectRow(0)
+    assert "[tmdb:2]" in w.details.toPlainText()
+    monkeypatch.setattr(QInputDialog, "getItem", staticmethod(lambda *a: (a[3][1], True)))
+    w.choose_match();pump(app, w)
+    item = w.store.by_source(movie)
+    assert item.action == "move" and item.dest.endswith("Dune (2021)/Dune (2021).mkv")
+    w.filter.setCurrentIndex(w.filter.findData("changes"));w.table.selectRow(0)
+    assert "Online plot" in w.details.toPlainText()
+    w.close()
+
+
+def test_one_click_mixed_layout_clears_destinations_preserves_exclusions(app, engine, lib, tmp_path):
+    from datacurator.gui.app import MainWindow
+    w = MainWindow(engine);w.sources.addItem(str(lib))
+    w.dest_edits["documents"].setText(str(tmp_path / "External"))
+    w.exclusions.folders.addItem(str(lib / "Saved games"))
+    w.video_metadata.movies.setCurrentIndex(w.video_metadata.movies.findData("tmdb"))
+    w.use_mixed_layout()
+    p = w.current_profile()
+    assert p["sources"] == [str(lib)] and all(not c["root"] for c in p["categories"].values())
+    assert p["categories"]["photos"]["enabled"] and p["categories"]["documents"]["enabled"]
+    assert p["extension_folders"]["folders"][".heic"] == "Photos/HEIC"
+    assert p["scan"]["exclude_dirs"] == [str(lib / "Saved games")]
+    assert p["providers"] == {"tv": "none", "movies": "none"}
+    assert w.steps.currentRow() == 1 and w.cat_tabs.currentWidget() is w.extension_rules
     w.close()
