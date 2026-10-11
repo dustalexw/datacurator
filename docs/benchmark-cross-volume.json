@@ -1,0 +1,32 @@
+{
+ "hardware": {
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+  "logical_cpus": 2,
+  "ram_gb": 7.8,
+  "os": "Linux 6.18.44-fc-v114",
+  "python": "3.13.16"
+ },
+ "storage": "cross-volume: ext4 virtual disk -> /dev/shm/curator-bench (verified copies)",
+ "bytes_copied": 1682811900,
+ "copy_mb_per_s": 104.3,
+ "files": 1250,
+ "generate_s": 7.32,
+ "cold_scan_s": 0.53,
+ "cold_scan_files_per_s": 2358,
+ "metadata_read": 650,
+ "incremental_rescan_s": 0.03,
+ "incremental_reused": 1250,
+ "plan_s": 0.33,
+ "plan_changes": 1250,
+ "plan_review": 0,
+ "apply_s": 15.38,
+ "apply_done": 1250,
+ "apply_failed": 0,
+ "apply_files_per_s": 81,
+ "replan_in_place_s": 0.24,
+ "replan_changes": 0,
+ "undo_s": 20.02,
+ "undo_restored": 1250,
+ "undo_complete": true,
+ "peak_rss_mb": 53
+}

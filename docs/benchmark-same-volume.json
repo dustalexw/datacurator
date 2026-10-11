@@ -1,0 +1,30 @@
+{
+ "hardware": {
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+  "logical_cpus": 2,
+  "ram_gb": 7.8,
+  "os": "Linux 6.18.44-fc-v114",
+  "python": "3.13.16"
+ },
+ "storage": "single local ext4 virtual disk (same-volume renames; no cross-volume copies)",
+ "files": 52500,
+ "generate_s": 6.95,
+ "cold_scan_s": 23.02,
+ "cold_scan_files_per_s": 2281,
+ "metadata_read": 32500,
+ "incremental_rescan_s": 1.6,
+ "incremental_reused": 52500,
+ "plan_s": 14.28,
+ "plan_changes": 52500,
+ "plan_review": 0,
+ "apply_s": 72.0,
+ "apply_done": 52500,
+ "apply_failed": 0,
+ "apply_files_per_s": 729,
+ "replan_in_place_s": 10.39,
+ "replan_changes": 0,
+ "undo_s": 79.86,
+ "undo_restored": 52500,
+ "undo_complete": true,
+ "peak_rss_mb": 187
+}
