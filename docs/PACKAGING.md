@@ -47,6 +47,8 @@ The output folder `dist/DataCurator/` contains both programs sharing one runtime
   The bundle explicitly disables `LSBackgroundOnly` and `LSUIElement`: collecting the console
   CLI alongside the GUI otherwise causes PyInstaller to mark the whole app as background-only.
   CI verifies the generated `Info.plist` with `scripts/check_macos_bundle.py`.
+  It also launches the signed app through LaunchServices and checks that macOS classifies it as
+  a regular, active application (`scripts/check_macos_activation.swift`).
 * Sign and notarize for distribution:
   `codesign --deep --options runtime --sign "Developer ID Application: …" "dist/Data Curator.app"`,
   then `xcrun notarytool submit … --wait` and `xcrun stapler staple`.

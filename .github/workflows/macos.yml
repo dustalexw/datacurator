@@ -67,6 +67,8 @@ jobs:
         run: python scripts/check_macos_bundle.py "dist/Data Curator.app"
       - name: Ad-hoc sign (not notarized)
         run: codesign --force --deep --sign - "dist/Data Curator.app"
+      - name: Verify native macOS app activation
+        run: swift scripts/check_macos_activation.swift "dist/Data Curator.app" "$RUNNER_TEMP/dc-native"
       - name: Smoke test the built CLI
         run: |
           "dist/Data Curator.app/Contents/MacOS/curator" --version
