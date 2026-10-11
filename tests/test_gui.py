@@ -13,9 +13,11 @@ pytestmark = pytest.mark.gui
 
 
 @pytest.fixture(scope="module")
-def app():
+def app(tmp_path_factory):
     from PySide6.QtCore import QSettings
     from PySide6.QtWidgets import QApplication
+    QSettings.setDefaultFormat(QSettings.IniFormat)
+    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp_path_factory.mktemp("gui-settings")))
     QSettings("DataCurator", "DataCurator").clear()
     a = QApplication.instance() or QApplication([])
     yield a
