@@ -28,6 +28,13 @@ ENCODERS = {
 }
 
 
+FALLBACK = {
+    ".ogg": [["-c:a", "vorbis", "-strict", "-2"]],
+    ".opus": [["-c:a", "opus", "-strict", "-2", "-b:a", "32k"]],
+    ".mp3": [["-c:a", "mp3"]],
+}
+
+
 @lru_cache(maxsize=None)
 def template(ext: str) -> str:
     """Create (once) a tiny real audio file of the given type with ffmpeg."""
@@ -36,9 +43,17 @@ def template(ext: str) -> str:
     if not os.path.exists(out):
         real_ext = ".m4a" if ext == ".alac.m4a" else ext
         tmp = out + ".tmp" + real_ext
-        cmd = ["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
-               "-t", "0.2", *ENCODERS[ext], tmp]
-        subprocess.run(cmd, check=True)
+        # Some ffmpeg builds (e.g. Homebrew) lack libvorbis/libopus: fall back to ffmpeg's native encoders
+        options = [ENCODERS[ext]] + FALLBACK.get(ext, [])
+        for i, enc in enumerate(options):
+            src = "anullsrc=r=48000:cl=stereo" if i else "anullsrc=r=44100:cl=mono"
+            cmd = ["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", src, "-t", "0.2", *enc, tmp]
+            try:
+                subprocess.run(cmd, check=True)
+                break
+            except subprocess.CalledProcessError:
+                if i == len(options) - 1:
+                    raise
         os.replace(tmp, out)
     return out
 
