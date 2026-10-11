@@ -31,6 +31,7 @@ from ..storage import locations as L
 from . import workers as W
 from . import theme as T
 from .models import PlanTableModel, build_tree
+from .about import AboutDialog
 
 CATS = [("music", "Music"), ("tv", "TV"), ("movies", "Movies"), ("documents", "Documents"), ("photos", "Photos"),
         ("other", "Other files")]
@@ -376,11 +377,13 @@ class MainWindow(QMainWindow):
             grp.addAction(a)
             v.addAction(a)
         h = self.menuBar().addMenu("&Help")
-        a = QAction("About", self)
-        a.setMenuRole(QAction.AboutRole)
-        a.triggered.connect(lambda: QMessageBox.about(
-            self, "Data Curator", f"Data Curator {__version__}\nCatalog and journal: {self.engine.data_dir}"))
-        h.addAction(a)
+        self.about_action = QAction("About Data Curator…", self)
+        self.about_action.setMenuRole(QAction.AboutRole)
+        self.about_action.triggered.connect(self.show_about)
+        h.addAction(self.about_action)
+
+    def show_about(self):
+        AboutDialog(self).exec()
 
     def set_theme(self, name: str):
         T.apply(QApplication.instance(), name)
@@ -1198,6 +1201,8 @@ class MainWindow(QMainWindow):
 def main(argv=None) -> int:
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName("Data Curator")
+    app.setApplicationDisplayName("Data Curator")
+    app.setApplicationVersion(__version__)
     app.setOrganizationName("DataCurator")
     app.setWindowIcon(T.app_icon())
     T.apply(app, str(QSettings("DataCurator", "DataCurator").value("theme") or "nebula"))
