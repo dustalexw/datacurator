@@ -51,6 +51,7 @@ class VolumeIdentity:
     fsid: int = 0             # statvfs f_fsid (stable for local filesystems)
     win_serial: int = 0
     is_network: bool = False
+    path: str = ""            # the existing folder these values were read from
 
     def matches(self, other: "VolumeIdentity") -> tuple[bool, str]:
         """True if `other` plausibly is the same storage. Returns (ok, explanation)."""
@@ -181,7 +182,7 @@ def volume_identity(path: str) -> VolumeIdentity:
     st = os.stat(path)
     mp, fstype, dev = _mount_for(path)
     vid = VolumeIdentity(fs_type=fstype, mountpoint=mp, device=dev, st_dev=st.st_dev,
-                         root_ino=st.st_ino, is_network=fstype in NETWORK_FS)
+                         root_ino=st.st_ino, is_network=fstype in NETWORK_FS, path=os.path.abspath(path))
     if hasattr(os, "statvfs"):
         try:
             vid.fsid = int(os.statvfs(path).f_fsid)
