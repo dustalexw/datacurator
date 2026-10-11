@@ -78,10 +78,11 @@ jobs:
           kill -0 $PID && echo "app is running" && kill $PID
       - name: Package (zip + dmg)
         run: |
+          VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); import datacurator; print(datacurator.__version__)")
           cd dist
-          ditto -c -k --keepParent "Data Curator.app" "DataCurator-1.0.0-macos-${{ matrix.arch }}.zip"
+          ditto -c -k --keepParent "Data Curator.app" "DataCurator-$VERSION-macos-${{ matrix.arch }}.zip"
           hdiutil create -volname "Data Curator" -srcfolder "Data Curator.app" -ov -format UDZO \
-            "DataCurator-1.0.0-macos-${{ matrix.arch }}.dmg"
+            "DataCurator-$VERSION-macos-${{ matrix.arch }}.dmg"
       - uses: actions/upload-artifact@v4
         with:
           name: DataCurator-macos-${{ matrix.arch }}

@@ -29,6 +29,7 @@ from ..models import CuratorError, PreflightError
 from ..naming.template import TOKENS_BY_CATEGORY, Template
 from ..storage import locations as L
 from . import workers as W
+from . import theme as T
 from .models import PlanTableModel, build_tree
 
 CATS = [("music", "Music"), ("tv", "TV"), ("movies", "Movies"), ("documents", "Documents"), ("photos", "Photos"),
@@ -268,26 +269,49 @@ class MainWindow(QMainWindow):
         self.profiles_dir = os.path.join(self.engine.data_dir, "profiles")
         os.makedirs(self.profiles_dir, exist_ok=True)
 
+        self.setWindowIcon(T.app_icon())
         central = QWidget()
+        central.setObjectName("Root")
         root = QHBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
         side = QWidget()
-        side.setFixedWidth(210)
+        side.setObjectName("Sidebar")
+        side.setFixedWidth(232)
         sl = QVBoxLayout(side)
-        sl.setContentsMargins(12, 16, 12, 12)
-        sl.addWidget(label("Data Curator", "title"))
-        sl.addSpacing(8)
+        sl.setContentsMargins(16, 18, 16, 14)
+        brand = QHBoxLayout()
+        logo = QLabel()
+        logo.setPixmap(T.logo_pixmap(46))
+        logo.setFixedSize(48, 48)
+        logo.setAccessibleName("Data Curator logo")
+        brand.addWidget(logo)
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        names.addWidget(T.GradientTitle("Data Curator", 14.5))
+        tag = label("preview · apply · undo", "hint", wrap=False)
+        tag.setStyleSheet("font-size: 8.5pt;")
+        names.addWidget(tag)
+        brand.addLayout(names, 1)
+        sl.addLayout(brand)
+        sl.addSpacing(18)
+        sl.addWidget(label("WORKFLOW", "section", wrap=False))
+        sl.addSpacing(4)
         self.steps = QListWidget()
         self.steps.setObjectName("steps")
         self.steps.setAccessibleName("Workflow steps")
-        for t in ("1  Sources", "2  Rules", "3  Review", "4  Results"):
+        for t in ("①  Sources", "②  Rules", "③  Review", "④  Results"):
             self.steps.addItem(QListWidgetItem(t))
         sl.addWidget(self.steps, 1)
-        sl.addWidget(label("Previews never change your files. Nothing moves until you choose Apply.", "hint"))
+        safe = QGroupBox()
+        safe_l = QVBoxLayout(safe)
+        safe_l.setContentsMargins(4, 0, 4, 0)
+        safe_l.addWidget(label("🛡  Safe by design", None, wrap=False))
+        safe_l.addWidget(label("Previews never change your files. Every step is journaled and can be undone.",
+                               "hint"))
+        sl.addWidget(safe)
+        sl.addWidget(label(f"v{__version__}", "hint", wrap=False))
         root.addWidget(side)
-        line = QFrame()
-        line.setFrameShape(QFrame.VLine)
-        root.addWidget(line)
         self.pages = QStackedWidget()
         root.addWidget(self.pages, 1)
         self.setCentralWidget(central)
@@ -339,18 +363,36 @@ class MainWindow(QMainWindow):
         q.setShortcut(QKeySequence.Quit)
         q.triggered.connect(self.close)
         m.addAction(q)
+        v = self.menuBar().addMenu("&View")
+        from PySide6.QtGui import QActionGroup
+        grp = QActionGroup(self)
+        for key, text in (("nebula", "Nebula theme (dark)"), ("system", "System theme")):
+            a = QAction(text, self, checkable=True)
+            a.setChecked((self.settings.value("theme") or "nebula") == key)
+            a.triggered.connect(lambda _=False, k=key: self.set_theme(k))
+            grp.addAction(a)
+            v.addAction(a)
         h = self.menuBar().addMenu("&Help")
         a = QAction("About", self)
         a.triggered.connect(lambda: QMessageBox.about(
             self, "Data Curator", f"Data Curator {__version__}\nCatalog and journal: {self.engine.data_dir}"))
         h.addAction(a)
 
+    def set_theme(self, name: str):
+        T.apply(QApplication.instance(), name)
+        self.settings.setValue("theme", name)
+        for t in list(getattr(self, "tiles", {}).values()) + list(getattr(self, "run_tiles", {}).values()):
+            t.set_active(t.key == self.filter.currentData() if t in self.tiles.values() else False)
+        self.update()
+
     # ------------------------------------------------------------------ page 1
     def _page_sources(self) -> QWidget:
         w = QWidget()
+        w.setObjectName("Page")
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(24, 20, 24, 20)
-        lay.addWidget(label("Sources and destinations", "title"))
+        lay.setContentsMargins(28, 22, 28, 20)
+        lay.setSpacing(10)
+        lay.addWidget(T.GradientTitle("Sources and destinations", 20))
         lay.addWidget(label("Choose the folders to organize, then where each kind of file should go. Leave a "
                             "destination empty to organize inside the source folder without adding a wrapper folder.",
                             "hint"))
@@ -433,9 +475,11 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ page 2
     def _page_rules(self) -> QWidget:
         w = QWidget()
+        w.setObjectName("Page")
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(24, 20, 24, 20)
-        lay.addWidget(label("Organization rules", "title"))
+        lay.setContentsMargins(28, 22, 28, 20)
+        lay.setSpacing(10)
+        lay.addWidget(T.GradientTitle("Organization rules", 20))
         lay.addWidget(label("Pick a layout per kind of file. Only folders the layout needs are created; tags, "
                             "collections and the review queue live in the catalog, not in extra folders.", "hint"))
         self.cat_tabs = QTabWidget()
@@ -505,12 +549,26 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ page 3
     def _page_review(self) -> QWidget:
         w = QWidget()
+        w.setObjectName("Page")
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(24, 20, 24, 20)
-        lay.addWidget(label("Review proposed changes", "title", wrap=False))
+        lay.setContentsMargins(28, 22, 28, 20)
+        lay.setSpacing(10)
+        lay.addWidget(T.GradientTitle("Review proposed changes", 20))
         self.summary = label("Run “Scan and preview” to see proposed changes.", "hint")
         self.summary.setAccessibleName("Plan summary")
         lay.addWidget(self.summary)
+        tiles = QHBoxLayout()
+        tiles.setSpacing(10)
+        self.tiles: dict[str, T.StatTile] = {}
+        for key, text, color in (("changes", "To change", T.CYAN), ("review", "Review queue", T.AMBER),
+                                 ("conflicts", "Conflicts", T.RED), ("duplicates", "Duplicates", T.VIOLET),
+                                 ("unchanged", "Already organized", T.GREEN), ("_folders", "New folders", T.BLUE),
+                                 ("_bytes", "Copy between drives", T.PINK)):
+            t = T.StatTile(key, text, color)
+            t.clicked.connect(self._tile_clicked)
+            self.tiles[key] = t
+            tiles.addWidget(t)
+        lay.addLayout(tiles)
         bar = QHBoxLayout()
         self.filter = QComboBox()
         self.filter.setAccessibleName("Filter")
@@ -536,12 +594,14 @@ class MainWindow(QMainWindow):
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(24)
+        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.setShowGrid(False)
+        self.table.setItemDelegateForColumn(0, T.ActionDelegate(self.table))
         self.table.setWordWrap(False)
         self.table.setTextElideMode(Qt.ElideMiddle)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.Interactive)
-        for i, wdt in enumerate((150, 140, 340, 360, 280)):
+        for i, wdt in enumerate((190, 150, 320, 360, 280)):
             self.table.setColumnWidth(i, wdt)
         hh.setStretchLastSection(True)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
@@ -591,12 +651,23 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ page 4
     def _page_results(self) -> QWidget:
         w = QWidget()
+        w.setObjectName("Page")
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(24, 20, 24, 20)
-        lay.addWidget(label("Results and history", "title"))
+        lay.setContentsMargins(28, 22, 28, 20)
+        lay.setSpacing(10)
+        lay.addWidget(T.GradientTitle("Results and history", 20))
+        rt = QHBoxLayout()
+        rt.setSpacing(10)
+        self.run_tiles: dict[str, T.StatTile] = {}
+        for key, text, color in (("done", "Done", T.GREEN), ("failed", "Failed", T.RED),
+                                 ("skipped", "Left in place", T.AMBER), ("bytes", "Copied & verified", T.CYAN)):
+            t = T.StatTile(key, text, color)
+            self.run_tiles[key] = t
+            rt.addWidget(t)
+        lay.addLayout(rt)
         self.result_text = QTextBrowser()
         self.result_text.setAccessibleName("Result of the last run")
-        self.result_text.setMaximumHeight(220)
+        self.result_text.setMaximumHeight(180)
         lay.addWidget(self.result_text)
         lay.addWidget(label("Every run is recorded in the recovery journal. Undo checks that files are still the "
                             "ones that were organized and never overwrites anything.", "hint"))
@@ -826,6 +897,13 @@ class MainWindow(QMainWindow):
             f"{s['changes']:,} to change · {s['unchanged']:,} already organized · {s['review']:,} to review · "
             f"{s['conflicts']:,} conflicts · {s['duplicates']:,} duplicates · {s['folders_to_create']:,} new folders · "
             f"{fmt_bytes(s['bytes_to_copy'])} to copy between drives")
+        for k, t in self.tiles.items():
+            if k == "_folders":
+                t.set_value(f"{s['folders_to_create']:,}")
+            elif k == "_bytes":
+                t.set_value(fmt_bytes(s["bytes_to_copy"]))
+            else:
+                t.set_value(f"{s[k]:,}")
         self.apply_btn.setEnabled(s["changes"] > 0)
         st = res.get("stats")
         if st:
@@ -838,6 +916,15 @@ class MainWindow(QMainWindow):
     def _filter_changed(self):
         self.model.set_filter(self.filter.currentData(), self.search.text().strip())
         self.details.setPlainText("")
+        for k, t in getattr(self, "tiles", {}).items():
+            t.set_active(k == self.filter.currentData())
+
+    def _tile_clicked(self, key: str):
+        if key.startswith("_"):
+            return
+        i = self.filter.findData(key)
+        if i >= 0:
+            self.filter.setCurrentIndex(i)
 
     def _selected_items(self):
         if not self.store:
@@ -932,6 +1019,10 @@ class MainWindow(QMainWindow):
 
     def _applied(self, res):
         self.last_batch = res.batch_id
+        self.run_tiles["done"].set_value(f"{res.done:,}")
+        self.run_tiles["failed"].set_value(f"{res.failed:,}")
+        self.run_tiles["skipped"].set_value(f"{res.skipped:,}")
+        self.run_tiles["bytes"].set_value(fmt_bytes(res.bytes_copied))
         lines = [f"<b>{res.status.replace('_', ' ').capitalize()}</b> — {res.message}",
                  (f"{fmt_bytes(res.bytes_copied)} copied between drives and verified." if res.bytes_copied
                   else "All moves were renames on the same drive; no data was copied.")]
@@ -954,7 +1045,14 @@ class MainWindow(QMainWindow):
             vals = [b["id"], time.strftime("%Y-%m-%d %H:%M", time.localtime(b["created"])), b["kind"],
                     b["status"].replace("_", " "), (b.get("message") or "").split("\n")[0]]
             for c, v in enumerate(vals):
-                self.history.setItem(r, c, QTableWidgetItem(v))
+                item = QTableWidgetItem(v)
+                if c == 3 and T.is_nebula():
+                    col = {"completed": T.GREEN, "undone": T.VIOLET, "cancelled": T.AMBER, "interrupted": T.AMBER,
+                           "failed": T.RED}.get(b["status"], T.CORAL if "error" in b["status"] or "partial" in
+                                                b["status"] else T.TEXT)
+                    from PySide6.QtGui import QColor
+                    item.setForeground(QColor(col))
+                self.history.setItem(r, c, item)
 
     def undo_selected(self):
         r = self.history.currentRow()
@@ -1097,8 +1195,8 @@ def main(argv=None) -> int:
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName("Data Curator")
     app.setOrganizationName("DataCurator")
-    app.setStyle("Fusion")
-    app.setStyleSheet(STYLE)
+    app.setWindowIcon(T.app_icon())
+    T.apply(app, str(QSettings("DataCurator", "DataCurator").value("theme") or "nebula"))
     w = MainWindow()
     w.show()
     return app.exec()
