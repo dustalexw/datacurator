@@ -5,12 +5,13 @@ either not implemented or implemented but not verified in this release.
 
 ## Not verified on these platforms
 
-* **Windows was not run; macOS only on CI.** The full test suite passes on GitHub-hosted macOS 14 (Apple silicon) and macOS 15 (Intel) runners, but macOS was not used interactively. Their code paths exist (volume information and long-path
-  detection, `MoveFileExW` no-replace renames, UNC/mapped-drive detection, `net use`; macOS
-  `renamex_np(RENAME_EXCL)`, APFS/HFS+ probing, Finder reconnection) but every *verified* result in
-  [VALIDATION.md](VALIDATION.md) comes from Linux. Treat Windows/macOS as beta until the test suite has
-  been run there (`python -m pytest` works on both).
-* Kernel CIFS and NFS clients, Btrfs, ZFS, APFS, HFS+, ReFS: expected to work, not exercised.
+* **Windows was not run.** Its code paths exist (volume information and long-path detection,
+  `MoveFileExW` no-replace renames, UNC/mapped-drive detection, `net use`) but have not been executed.
+  Treat Windows as beta until the test suite has been run there (`python -m pytest`).
+* **macOS was verified on CI only.** The full test suite passes on GitHub-hosted macOS 14 (Apple
+  silicon) and macOS 15 (Intel) runners on APFS, but the app was not used on a physical Mac display,
+  with network shares, or with Finder reconnection.
+* Kernel CIFS and NFS clients, Btrfs, ZFS, HFS+, ReFS: expected to work, not exercised.
 * The GUI was exercised with the offscreen Qt platform on Linux (functional tests and screenshots),
   not on a physical display, and not with a screen reader. Widgets carry accessible names and the
   workflow is keyboard-operable, but no formal accessibility audit was done.
