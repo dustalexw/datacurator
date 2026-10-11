@@ -1,5 +1,8 @@
 name: macOS build
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [main]
@@ -12,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-13]
+        os: [macos-14, macos-15-intel]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +27,16 @@ jobs:
       - name: Test suite (APFS, real macOS)
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -v -rs
+        run: |
+          python -m pytest -v -rs --junitxml=junit.xml || {
+            python - <<'PY'
+          import xml.etree.ElementTree as ET
+          for tc in ET.parse("junit.xml").iter("testcase"):
+              for f in list(tc.findall("failure")) + list(tc.findall("error")):
+                  msg = (f.get("message") or "").replace("\n", " ")[:900]
+                  print(f"::error title={tc.get('classname')}.{tc.get('name')}::{msg}")
+          PY
+            exit 1; }
 
   build:
     name: Build .app (${{ matrix.arch }})
@@ -34,7 +46,7 @@ jobs:
         include:
           - os: macos-14
             arch: arm64
-          - os: macos-13
+          - os: macos-15-intel
             arch: x86_64
     runs-on: ${{ matrix.os }}
     steps:
@@ -71,3 +83,21 @@ jobs:
           path: |
             dist/*.dmg
             dist/*.zip
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Create GitHub release with the macOS builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" out/* --repo "${GITHUB_REPOSITORY}" \
+            --title "Data Curator ${GITHUB_REF_NAME}" \
+            --notes "macOS builds (arm64 = Apple silicon, x86_64 = Intel). Ad-hoc signed, not notarized: on first launch right-click the app and choose Open."
