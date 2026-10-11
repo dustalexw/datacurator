@@ -85,6 +85,74 @@ def test_workflow_preview_review_apply_undo(app, engine, lib, tmp_path, monkeypa
     w.close()
 
 
+def test_music_library_scan_filter_batch_edit_layout_and_preview(app, engine, lib, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QDialog
+    from datacurator.gui.app import MainWindow
+    from datacurator.gui.music import MusicDetailsDialog, FilenameDetailsDialog
+    a = lib / "Artist/Album/01 - One.flac"
+    b = lib / "Artist/Album/02 - Two.flac"
+    make_audio(str(a), artist="Artist", album="Album", title="One", tracknumber="1")
+    make_audio(str(b))
+    original = {path: path.read_bytes() for path in (a, b)}
+    w = MainWindow(engine)
+    w.sources.addItem(str(lib))
+    w.scan_music_library()
+    pump(app, w)
+    page = w.music_page
+    assert w.steps.currentRow() == 4 and page.proxy.rowCount() == 2
+    page.issue.setCurrentIndex(page.issue.findData("missing"))
+    assert page.proxy.rowCount() == 1
+    page.table.selectAll()
+    dialog = FilenameDetailsDialog(page, page.selected_rows())
+    dialog.mask.setCurrentText("{album_artist}/{album}/{track} - {title}")
+    dialog.preview()
+    assert dialog.changes[str(b)] == {"album_artist": "Artist", "album": "Album", "track": "2", "title": "Two"}
+    w.save_music_details(dialog.changes)
+    pump(app, w)
+    assert page.proxy.rowCount() == 0
+    dialog.close()
+    page.issue.setCurrentIndex(page.issue.findData("all"))
+    page.artist.setCurrentIndex(page.artist.findData("Artist"))
+    assert page.proxy.rowCount() == 2
+    page.search.setText("Two")
+    page.filter_changed()
+    assert page.proxy.rowCount() == 1
+    page.search.clear()
+    page.filter_changed()
+    page.table.selectAll()
+
+    def edit_dialog(d):
+        # Check only album; keep distinct titles and track numbers unchanged.
+        check, entry = d.fields["album"]
+        check.setChecked(True)
+        entry.setText("New Album")
+        d.accept()
+        return QDialog.Accepted
+
+    monkeypatch.setattr(MusicDetailsDialog, "exec", edit_dialog)
+    page.edit_selected()
+    pump(app, w)
+    assert {row["album"] for row in page.model.rows} == {"New Album"}
+    assert {row["title"] for row in page.model.rows} == {"One", "Two"}
+    w.dest_edits["music"].setText(str(tmp_path / "Old destination"))
+    w.use_music_layout("music_in_source", True, True)
+    assert w.dest_edits["music"].text() == ""
+    assert w.current_profile()["categories"]["music"]["mode"] == "move"
+    page.write_tags.setChecked(True)
+    assert w.opt_tags.isChecked() and w.current_profile()["write_tags"]
+    page.write_tags.setChecked(False)
+    w.scan_and_preview()
+    pump(app, w)
+    assert all(w.store.by_source(str(path)).dest == str(lib / "Music/Artist/New Album" / path.name)
+               for path in (a, b))
+    assert all(path.read_bytes() == data for path, data in original.items())
+    assert w.apply_btn.isEnabled()
+    w.save_music_details({str(a): {"genre": "Jazz"}})
+    assert not w.apply_btn.isEnabled()  # stale plans cannot apply edited details
+    pump(app, w)
+    w.close()
+
+
 def test_large_plan_table_is_paged(app, engine, lib, tmp_path):
     from datacurator.gui.app import MainWindow
     for i in range(1500):
