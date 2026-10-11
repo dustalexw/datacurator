@@ -41,8 +41,10 @@ either not implemented or implemented but not verified in this release.
 * Duplicate removal moves extra copies to a quarantine folder (undoable); emptying the quarantine is
   left to the user.
 * Undo works per run; undoing an undo is not supported (preview and apply again instead).
-* HEIC and most RAW photos: Pillow cannot read their capture dates without extra plugins, so they go
-  to review unless the modified-time fallback is enabled.
+* Most RAW photos still need extra readers and go to review unless the modified-time fallback is
+  enabled. HEIC/HEIF capture dates are supported through the bundled `pillow-heif` reader.
+  Photos without a capture date stay in review unless you set a year/month or enable the
+  modified-time fallback in Rules → Photos.
 
 ## Behaviour to be aware of
 

@@ -11,7 +11,7 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QSettings, Qt, QTimer
+from PySide6.QtCore import QSettings, QSignalBlocker, Qt, QTimer
 from PySide6.QtGui import QAction, QFont, QKeySequence, QPalette
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView,
@@ -453,6 +453,7 @@ class MainWindow(QMainWindow):
             e.setPlaceholderText("organize inside the source folder")
             e.setAccessibleName(f"{title} destination folder")
             self.dest_edits[cat] = e
+            e.textChanged.connect(lambda text, c=cat: self._destination_changed(c, text))
             grid.addWidget(e, i, 1)
             b = QPushButton("Browse…")
             b.setAccessibleName(f"Browse for {title} destination")
@@ -711,7 +712,9 @@ class MainWindow(QMainWindow):
             self.sources.addItem(s)
         for cat, _ in CATS:
             cfg = prof["categories"][cat]
-            self.dest_edits[cat].setText(cfg.get("root", ""))
+            # Loading a saved profile must preserve intentional disabled categories.
+            with QSignalBlocker(self.dest_edits[cat]):
+                self.dest_edits[cat].setText(cfg.get("root", ""))
             self.editors[cat].load(cfg)
         self.conflict.setCurrentIndex(max(0, self.conflict.findData(prof.get("conflict_policy"))))
         self.naming.setCurrentIndex(max(0, self.naming.findData(prof["naming"].get("preset"))))
@@ -751,6 +754,11 @@ class MainWindow(QMainWindow):
             self.apply_btn.setEnabled(False)
             self.summary.setText("Rules changed — run “Scan and preview” again before applying.")
 
+    def _destination_changed(self, cat, text):
+        if text.strip():
+            self.editors[cat].enabled.setChecked(True)
+        self._rules_changed()
+
     # ================================================================== actions: sources
     def add_source(self):
         d = QFileDialog.getExistingDirectory(self, "Add a folder to organize")
@@ -767,7 +775,7 @@ class MainWindow(QMainWindow):
         d = QFileDialog.getExistingDirectory(self, f"Destination for {dict(CATS)[cat]}")
         if d:
             self.dest_edits[cat].setText(d)
-            self._rules_changed()
+            self._destination_changed(cat, d)
 
     def check_dest(self, cat):
         path = self.dest_edits[cat].text().strip() or (self.sources.item(0).text() if self.sources.count() else "")

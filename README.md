@@ -63,6 +63,13 @@ Standalone builds (no Python needed) are described in [docs/PACKAGING.md](docs/P
 4. **Results** — progress with pause/cancel, the run history, undo with a dry-run summary, and
    recovery of interrupted runs (offered automatically on start-up).
 
+Choosing a destination enables its category; you can turn it off again in Rules.
+**HEIC / HEIF photos** are supported, including their EXIF capture dates. After upgrading,
+choose **Scan and preview** again to retry previously unreadable files, then apply the new plan.
+Files without a capture date stay in review unless you set a year/month or choose the modified-time
+fallback in Rules → Photos. Enabled Photos and Documents rules take priority over automatic
+companion matching for HEIC/HEIF and PDFs in folders containing music or videos.
+
 ## Command line
 
 The CLI uses the same engine.

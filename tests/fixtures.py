@@ -147,6 +147,20 @@ def make_photo(path: str, date: str | None = "2021:07:04 10:00:00", size=(8, 8))
     return path
 
 
+def make_heif(path: str, date: str | None = "2021:07:04 10:00:00") -> str:
+    """Encode a real HEVC/HEIF container with nested camera EXIF metadata."""
+    from PIL import Image
+    from pillow_heif import from_pillow
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    exif = Image.Exif()
+    exif[271], exif[272] = "Apple", "Test camera"
+    if date:
+        exif[306] = "2025:02:03 08:00:00"  # modification date must not override capture date
+        exif[0x8769] = {36867: date, 36868: date}
+    from_pillow(Image.new("RGB", (32, 32), (200, 100, 50))).save(path, exif=exif.tobytes())
+    return path
+
+
 def snapshot(root: str) -> dict[str, tuple[int, int, bytes]]:
     """Every file under root -> (size, mtime_ns, first 64 bytes) and every dir; used to prove no mutation."""
     out = {}

@@ -1,42 +1,54 @@
 """Photo EXIF dates and local Kodi-style .nfo files (offline sources)."""
 from __future__ import annotations
 
+import os
 import re
 import xml.etree.ElementTree as ET
 from typing import Any
 
+from ..models import HEIF_EXT
+
 
 def read_photo(path: str) -> dict[str, Any]:
-    """EXIF capture date / camera. Reads only the header via Pillow's lazy loader."""
+    """Read capture date / camera without decoding or rewriting image pixels."""
     try:
         from PIL import Image
     except Exception:  # pragma: no cover
         return {"_error": "Pillow not installed"}
     try:
+        if os.path.splitext(path)[1].lower() in HEIF_EXT:
+            from pillow_heif import open_heif
+            exif = Image.Exif()
+            if data := open_heif(path).info.get("exif"):
+                exif.load(data)
+            return _photo_metadata(exif)
         with Image.open(path) as im:
-            exif = im.getexif()
-            if not exif:
-                return {"_source": "exif", "has_date": False}
-            out: dict[str, Any] = {"_source": "exif"}
-            date = None
-            try:
-                sub = exif.get_ifd(0x8769)
-                date = sub.get(36867) or sub.get(36868)
-            except Exception:
-                pass
-            date = date or exif.get(306)
-            if date:
-                m = re.match(r"^(\d{4})[:\-](\d{2})[:\-](\d{2})", str(date).strip())
-                if m and m.group(1) != "0000":
-                    out["year"], out["month"], out["day"] = int(m.group(1)), int(m.group(2)), int(m.group(3))
-            if exif.get(271):
-                out["camera_make"] = str(exif.get(271)).strip("\x00 ")
-            if exif.get(272):
-                out["camera_model"] = str(exif.get(272)).strip("\x00 ")
-            out["has_date"] = "year" in out
-            return out
+            return _photo_metadata(im.getexif())
     except Exception as e:
         return {"_error": f"Could not read image metadata: {e.__class__.__name__}"}
+
+
+def _photo_metadata(exif) -> dict[str, Any]:
+    if not exif:
+        return {"_source": "exif", "has_date": False}
+    out: dict[str, Any] = {"_source": "exif"}
+    date = None
+    try:
+        sub = exif.get_ifd(0x8769)
+        date = sub.get(36867) or sub.get(36868)
+    except Exception:
+        pass
+    date = date or exif.get(306)
+    if date:
+        m = re.match(r"^(\d{4})[:\-](\d{2})[:\-](\d{2})", str(date).strip())
+        if m and m.group(1) != "0000":
+            out["year"], out["month"], out["day"] = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if exif.get(271):
+        out["camera_make"] = str(exif.get(271)).strip("\x00 ")
+    if exif.get(272):
+        out["camera_model"] = str(exif.get(272)).strip("\x00 ")
+    out["has_date"] = "year" in out
+    return out
 
 
 def read_nfo(path: str) -> dict[str, Any]:

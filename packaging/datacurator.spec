@@ -1,11 +1,13 @@
 # PyInstaller spec: builds "DataCurator" (desktop app) and "curator" (CLI) into one folder.
 # Build on each target OS:   pyinstaller packaging/datacurator.spec --noconfirm
 import os, runpy, sys
+from PyInstaller.utils.hooks import collect_dynamic_libs
 block_cipher = None
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 SRC = os.path.join(ROOT, "src")
 VERSION = runpy.run_path(os.path.join(SRC, "datacurator", "__init__.py"))["__version__"]
-hidden = ["keyring.backends", "mutagen", "PIL.Image"]
+hidden = ["keyring.backends", "mutagen", "PIL.Image", "_pillow_heif"]
+heif_binaries = collect_dynamic_libs("pillow_heif")
 
 # Only QtCore/QtGui/QtWidgets are used; leaving out the rest keeps the bundle small.
 QT_UNUSED = ["PySide6." + m for m in ("QtQml", "QtQuick", "QtQuickWidgets", "QtPdf", "QtPdfWidgets", "QtNetwork",
@@ -13,6 +15,7 @@ QT_UNUSED = ["PySide6." + m for m in ("QtQml", "QtQuick", "QtQuickWidgets", "QtP
              "QtOpenGL", "QtOpenGLWidgets", "QtSvg", "QtDBus")]
 RES = os.path.join(SRC, "datacurator", "gui", "resources")
 gui = Analysis([os.path.join(ROOT, "packaging", "run_gui.py")], pathex=[SRC], hiddenimports=hidden,
+               binaries=heif_binaries,
                datas=[(RES, "datacurator/gui/resources")],
                excludes=["tkinter", "pytest", "numpy"] + QT_UNUSED, cipher=block_cipher)
 # drop bundled Qt libraries for modules we excluded (PyInstaller may still collect them as plugin deps)
@@ -20,6 +23,7 @@ _drop = ("libQt6Qml", "libQt6Quick", "libQt6Pdf", "libQt6QmlModels", "libQt6Virt
 gui.binaries = [b for b in gui.binaries if not any(os.path.basename(b[0]).startswith(d) for d in _drop)]
 gui.datas = [d for d in gui.datas if "/translations/" not in d[0].replace("\\", "/") or "qtbase_" in d[0]]
 cli = Analysis([os.path.join(ROOT, "packaging", "run_cli.py")], pathex=[SRC], hiddenimports=hidden,
+               binaries=heif_binaries,
                excludes=["tkinter", "pytest", "PySide6", "numpy"], cipher=block_cipher)
 MERGE((gui, "run_gui", "DataCurator"), (cli, "run_cli", "curator"))
 

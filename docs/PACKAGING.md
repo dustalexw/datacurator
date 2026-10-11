@@ -12,7 +12,7 @@ python -m pytest     # test suite
 ```
 
 Requirements: Python 3.11 or newer. Dependencies (installed automatically): `mutagen`, `Pillow`,
-`psutil`, `platformdirs`, `keyring`, and `PySide6` for the desktop app. `ffmpeg` is only needed to
+`pillow-heif`, `psutil`, `platformdirs`, `keyring`, and `PySide6` for the desktop app. `ffmpeg` is only needed to
 generate audio test fixtures.
 
 ## Standalone builds (PyInstaller)

@@ -16,7 +16,7 @@ from typing import Any, Iterable, Iterator
 from ..models import FileRecord
 
 SCHEMA_VERSION = 1
-META_VERSION = 3  # bump to force re-extraction after parser changes
+META_VERSION = 4  # re-read cached HEIC/HEIF failures with the new metadata reader
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta_info(key TEXT PRIMARY KEY, value TEXT);
