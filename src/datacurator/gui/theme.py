@@ -61,6 +61,15 @@ CHECK = os.path.join(RES, "check.png").replace("\\", "/")
 QSS = f"""
 * {{ font-size: 10pt; }}
 QMainWindow, QDialog, QMessageBox {{ background: {BG0}; }}
+QDialog#AboutDialog {{
+  background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1d1255, stop:0.5 {BG0}, stop:1 #2b0f48);
+}}
+QLabel#AboutVersion {{ color: {CYAN}; background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 4px 12px; font-size: 9pt; }}
+QFrame#AboutFeatures {{ background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255,255,255,0.09); border-radius: 12px; }}
+QLabel#AboutFeatureTitle {{ color: {TEXT}; font-weight: 700; }}
+QLabel#AboutCredits {{ font-size: 8.5pt; }}
 QWidget#Root {{
   background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1d1255, stop:0.45 {BG0}, stop:1 #2b0f48);
 }}
@@ -163,6 +172,10 @@ QFrame#Divider {{ background: rgba(255,255,255,0.07); max-height: 1px; }}
 """
 
 SYSTEM_QSS = """
+QLabel#AboutVersion { border: 1px solid palette(mid); border-radius: 12px; padding: 4px 12px; font-size: 9pt; }
+QFrame#AboutFeatures { border: 1px solid palette(mid); border-radius: 12px; }
+QLabel#AboutFeatureTitle { font-weight: 700; }
+QLabel#AboutCredits { font-size: 8.5pt; }
 QLabel[role="title"] { font-size: 17pt; font-weight: 700; }
 QLabel[role="hint"] { color: palette(placeholder-text); }
 QLabel[role="section"] { color: palette(placeholder-text); font-size: 8.5pt; font-weight: 700; }

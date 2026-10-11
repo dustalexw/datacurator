@@ -5,3 +5,4 @@ tests/_audio_templates/
 build/
 dist/
 *.egg-info/
+.venv/
