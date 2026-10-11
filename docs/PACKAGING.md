@@ -42,6 +42,11 @@ The output folder `dist/DataCurator/` contains both programs sharing one runtime
   architectures; pushing a `v*` tag publishes them as a GitHub release (`.dmg` and `.zip`).
 
 * Output: `dist/Data Curator.app` (plus the `curator` CLI inside `dist/DataCurator/`).
+* The desktop bundle is a foreground app. Selecting its window activates **Data Curator** in
+  the macOS menu bar, with File, View and Help; About and Quit are in the application menu.
+  The bundle explicitly disables `LSBackgroundOnly` and `LSUIElement`: collecting the console
+  CLI alongside the GUI otherwise causes PyInstaller to mark the whole app as background-only.
+  CI verifies the generated `Info.plist` with `scripts/check_macos_bundle.py`.
 * Sign and notarize for distribution:
   `codesign --deep --options runtime --sign "Developer ID Application: …" "dist/Data Curator.app"`,
   then `xcrun notarytool submit … --wait` and `xcrun stapler staple`.

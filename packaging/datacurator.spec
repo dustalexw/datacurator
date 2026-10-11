@@ -1,9 +1,10 @@
 # PyInstaller spec: builds "DataCurator" (desktop app) and "curator" (CLI) into one folder.
 # Build on each target OS:   pyinstaller packaging/datacurator.spec --noconfirm
-import os, sys
+import os, runpy, sys
 block_cipher = None
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 SRC = os.path.join(ROOT, "src")
+VERSION = runpy.run_path(os.path.join(SRC, "datacurator", "__init__.py"))["__version__"]
 hidden = ["keyring.backends", "mutagen", "PIL.Image"]
 
 # Only QtCore/QtGui/QtWidgets are used; leaving out the rest keeps the bundle small.
@@ -30,6 +31,12 @@ cli_exe = EXE(cli_pyz, cli.scripts, [], exclude_binaries=True, name="curator", c
 coll = COLLECT(gui_exe, gui.binaries, gui.zipfiles, gui.datas, cli_exe, cli.binaries, cli.zipfiles, cli.datas,
                name="DataCurator")
 if sys.platform == "darwin":
+    # COLLECT inherits console=True from the CLI (the last EXE above). Without
+    # this override BUNDLE marks the GUI LSBackgroundOnly, preventing activation,
+    # a Dock icon, and ownership of the native macOS menu bar.
     app = BUNDLE(coll, name="Data Curator.app", bundle_identifier="org.datacurator.app",
-                 icon=os.path.join(RES, "AppIcon.icns"),
-                 info_plist={"NSHighResolutionCapable": True, "LSMinimumSystemVersion": "11.0"})
+                 icon=os.path.join(RES, "AppIcon.icns"), version=VERSION,
+                 info_plist={"LSBackgroundOnly": False, "LSUIElement": False,
+                             "CFBundleName": "Data Curator", "CFBundleDisplayName": "Data Curator",
+                             "CFBundleVersion": VERSION,
+                             "NSHighResolutionCapable": True, "LSMinimumSystemVersion": "11.0"})

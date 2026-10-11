@@ -349,6 +349,8 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ menus
     def _menus(self):
+        if sys.platform == "darwin":
+            self.menuBar().setNativeMenuBar(True)
         m = self.menuBar().addMenu("&File")
         for text, key, fn in (("Open profile…", QKeySequence.Open, self.open_profile),
                               ("Save profile", QKeySequence.Save, self.save_profile),
@@ -360,6 +362,7 @@ class MainWindow(QMainWindow):
             m.addAction(a)
         m.addSeparator()
         q = QAction("Quit", self)
+        q.setMenuRole(QAction.QuitRole)
         q.setShortcut(QKeySequence.Quit)
         q.triggered.connect(self.close)
         m.addAction(q)
@@ -374,6 +377,7 @@ class MainWindow(QMainWindow):
             v.addAction(a)
         h = self.menuBar().addMenu("&Help")
         a = QAction("About", self)
+        a.setMenuRole(QAction.AboutRole)
         a.triggered.connect(lambda: QMessageBox.about(
             self, "Data Curator", f"Data Curator {__version__}\nCatalog and journal: {self.engine.data_dir}"))
         h.addAction(a)
