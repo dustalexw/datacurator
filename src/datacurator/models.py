@@ -57,8 +57,9 @@ AUDIO_EXT = {".mp3", ".flac", ".m4a", ".m4b", ".aac", ".alac", ".ogg", ".oga", "
 VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".mpg", ".mpeg", ".ts", ".m2ts",
              ".webm", ".flv", ".vob", ".divx", ".3gp"}
 SUBTITLE_EXT = {".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt", ".sup", ".smi", ".ttml"}
-IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif",
-             ".cr2", ".cr3", ".nef", ".arw", ".dng", ".orf", ".rw2", ".raf"}
+HEIF_EXT = {".heic", ".heif"}
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff",
+             ".cr2", ".cr3", ".nef", ".arw", ".dng", ".orf", ".rw2", ".raf"} | HEIF_EXT
 DOCUMENT_EXT = {".pdf", ".doc", ".docx", ".odt", ".rtf", ".xls", ".xlsx", ".ods", ".csv",
                 ".ppt", ".pptx", ".odp", ".md", ".pages", ".numbers", ".key", ".epub", ".tex"}
 PLAYLIST_EXT = {".m3u", ".m3u8", ".pls"}

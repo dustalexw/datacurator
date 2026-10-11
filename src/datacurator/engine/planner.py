@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 from ..metadata.audio import primary_artist, year_of
 from ..metadata.video import (episode_code, parse_movie, parse_tv, subtitle_suffix)
-from ..models import (ALT_AUDIO_EXT, Action, Category, FileRecord, Flag, Kind, PlanItem)
+from ..models import (ALT_AUDIO_EXT, HEIF_EXT, Action, Category, FileRecord, Flag, Kind, PlanItem)
 from ..naming.sanitize import NamingRules, equivalence_key, sanitize_component
 from ..naming.template import Template
 from ..storage.capabilities import Capabilities, inspect, volume_identity
@@ -440,6 +440,15 @@ class Planner:
             if r.kind == Kind.VIDEO.value:
                 continue
             name = os.path.basename(r.path)
+            # Explicit Photos/Documents rules take precedence over automatic
+            # album-booklet and same-stem video-companion guesses in mixed folders.
+            ext = os.path.splitext(name)[1].lower()
+            category = ("photos" if r.kind == Kind.IMAGE.value and ext in HEIF_EXT else
+                        "documents" if r.kind == Kind.DOCUMENT.value and ext == ".pdf" else None)
+            if category and self.cfg[category]["enabled"]:
+                if r not in extra:
+                    out[category].append(r)
+                continue
             matched = None
             for stem, v in stems:
                 if v.path not in video_set:
@@ -1185,7 +1194,7 @@ class Planner:
                 year, month, day = dt.year, dt.month, dt.day
                 prov["date"] = "file modified time (you enabled this fallback)"
             if not year:
-                store.add(self.make_item(r, cat, None, "No capture date in the photo's metadata.",
+                store.add(self.make_item(r, cat, None, r.meta_error or "No capture date in the photo's metadata.",
                                          flags=[Flag.UNCERTAIN.value],
                                          suggestions={"_note": "set a year/month, or enable the modified-time fallback"}))
                 return

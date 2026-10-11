@@ -99,3 +99,27 @@ def test_large_plan_table_is_paged(app, engine, lib, tmp_path):
     assert w.model.row(1499) is not None
     assert len(w.model._pages) <= 2  # only touched pages were loaded
     w.close()
+
+
+def test_destinations_enable_photos_documents_and_preserve_loaded_disabled_rules(app, engine, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    from datacurator.gui.app import MainWindow
+    from datacurator import profiles
+    w = MainWindow(engine)
+    p = profiles.normalize({"categories": {
+        "documents": {"root": str(tmp_path / "Docs"), "enabled": False},
+        "photos": {"root": str(tmp_path / "Photos"), "enabled": False}}})
+    w._load_profile_into_ui(p)
+    assert not w.editors["documents"].enabled.isChecked()
+    assert not w.editors["photos"].enabled.isChecked()
+    w.dest_edits["documents"].setText(str(tmp_path / "Documents"))
+    w.dest_edits["photos"].setText(str(tmp_path / "Pictures"))
+    assert w.current_profile()["categories"]["documents"]["enabled"]
+    assert w.current_profile()["categories"]["photos"]["enabled"]
+    w.editors["documents"].enabled.setChecked(False)
+    assert not w.current_profile()["categories"]["documents"]["enabled"]
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        staticmethod(lambda *a: str(tmp_path / "Documents")))
+    w.browse_dest("documents")  # choosing the existing destination also enables its rule
+    assert w.current_profile()["categories"]["documents"]["enabled"]
+    w.close()
