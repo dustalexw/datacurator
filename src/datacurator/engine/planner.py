@@ -85,7 +85,7 @@ class Planner:
     def __init__(self, profile: dict, catalog: Catalog, plans_dir: str,
                  progress: Callable[[str, int], None] | None = None,
                  cancel: threading.Event | None = None,
-                 caps_override: dict[str, Capabilities] | None = None):
+                 caps_override: dict[str, Capabilities] | None = None, tv_provider=None):
         self.p = profile
         self.cat = catalog
         self.plans_dir = plans_dir
@@ -110,6 +110,12 @@ class Planner:
         self.albums: dict[tuple, dict[str, Any]] = {}
         self.dir_groups: dict[tuple, dict[str, Any]] = {}
         self.series: dict[str, dict[str, Any]] = {}
+        if tv_provider is None:
+            from ..metadata.providers import make_tv_provider
+            tv_provider = make_tv_provider((profile.get("providers") or {}).get("tv"), catalog)
+        self.tv_provider = tv_provider
+        self._matches: dict[tuple, Any] = {}
+        self._episodes: dict[str, dict] = {}
 
     # ------------------------------------------------------------ utilities
     def _id(self) -> int:
@@ -1017,6 +1023,11 @@ class Planner:
                                       "Choose which one this episode belongs to.", group=grp,
                                       flags=[Flag.UNCERTAIN.value],
                                       suggestions={"series_year": " or ".join(map(str, sorted(s["years"])))})
+        if self.tv_provider is not None and info.get("pattern") in ("SxxEyy", "NxNN", "date", "override"):
+            r = self._enrich(series, year, o.get("series_id"), info, prov)
+            if r is not None:
+                return self.make_item(v, "tv", None, r[0], group=f"tv:{norm(series)}", flags=[Flag.UNCERTAIN.value],
+                                      provenance=prov, suggestions=r[1])
         if info.get("season") == 0:
             prov["season"] = prov.get("season", "filename") + " (specials)"
         code = episode_code(info)
@@ -1038,6 +1049,46 @@ class Planner:
             reason += " — special, filed under Season 00"
         reason += "."
         return self.make_item(v, "tv", built, reason, group=f"tv:{norm(series)}", provenance=prov)
+
+    def _enrich(self, series: str, year: int | None, series_id: str | None, info: dict, prov: dict):
+        """Fill a missing episode title from the optional provider. Returns (reason, suggestions)
+        when the user must choose between ambiguous matches; None otherwise."""
+        from ..metadata.providers import Candidate, choose
+        pv = self.tv_provider
+        key = (norm(series), year, series_id)
+        try:
+            if key not in self._matches:
+                if series_id:
+                    sid = series_id.split(":", 1)[-1]
+                    self._matches[key] = ("chosen", Candidate(pv.name, sid, series, year, "chosen by you"))
+                else:
+                    m = choose(pv.search(series), series, year)
+                    self._matches[key] = ("chosen", m.chosen) if m.chosen else ("ambiguous", m)
+            state, val = self._matches[key]
+            if state == "ambiguous":
+                if not val.candidates:
+                    prov["episode_title"] = prov.get("episode_title", "filename") + f"; {pv.name}: no match"
+                    return None
+                return (f"{pv.name} found several shows named “{series}”. Choose the right one.",
+                        {"series_id": " or ".join(c.ref for c in val.candidates), "_candidates":
+                         [c.label() for c in val.candidates]})
+            cand = val
+            if cand.id not in self._episodes:
+                self._episodes[cand.id] = pv.episodes(cand.id)
+            eps = self._episodes[cand.id]
+            if info.get("pattern") == "date":
+                hit = eps.get(f"D{info.get('air_date')}")
+            elif info.get("episodes"):
+                hit = eps.get(f"S{info.get('season')}E{info['episodes'][0]}")
+            else:
+                hit = None
+            if hit and hit.get("title") and not info.get("episode_title"):
+                info["episode_title"] = hit["title"]
+                prov["episode_title"] = f"{pv.name} (show {cand.id}, {cand.label()})"
+        except Exception as e:  # network or parse errors: stay offline, say so
+            prov["episode_title"] = prov.get("episode_title", "filename") + \
+                f"; {getattr(pv, 'name', 'provider')} unavailable ({e.__class__.__name__})"
+        return None
 
     def _plan_movie(self, v: FileRecord, info: dict, o: dict, nfo: dict) -> PlanItem:
         prov = {"title": info.get("title_source", "filename"), "year": info.get("title_source", "filename")}

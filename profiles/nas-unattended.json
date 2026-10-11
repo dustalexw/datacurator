@@ -1,0 +1,13 @@
+{
+  "name": "NAS inbox (unattended nightly run)",
+  "sources": ["/mnt/nas/inbox"],
+  "categories": {
+    "music": {"enabled": true, "root": "/mnt/nas/Music"},
+    "tv": {"enabled": true, "root": "/mnt/nas/TV", "preset": "series_year/season"},
+    "movies": {"enabled": true, "root": "/mnt/nas/Movies"}
+  },
+  "naming": {"preset": "portable"},
+  "preservation": {"block_lossy": false},
+  "network": {"retries": 6},
+  "unattended": {"enabled": true, "conflict_policy": "skip", "resume_interrupted": true}
+}

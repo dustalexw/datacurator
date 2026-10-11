@@ -62,9 +62,10 @@ class Engine:
 
     # ------------------------------------------------------------------- plan
     def plan(self, profile: dict, progress: Callable[[str, int], None] | None = None,
-             cancel: threading.Event | None = None, caps_override=None) -> PlanStore:
+             cancel: threading.Event | None = None, caps_override=None, tv_provider=None) -> PlanStore:
         profile = profiles_mod.normalize(profile)
-        return Planner(profile, self.catalog, self.plans_dir, progress, cancel, caps_override).build()
+        return Planner(profile, self.catalog, self.plans_dir, progress, cancel, caps_override,
+                       tv_provider=tv_provider).build()
 
     def open_plan(self, path_or_id: str) -> PlanStore:
         p = path_or_id

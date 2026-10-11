@@ -1,0 +1,8 @@
+{
+  "name": "Music: Album Artist / Year - Album, disc folders off",
+  "sources": ["~/Music"],
+  "categories": {
+    "music": {"enabled": true, "root": "", "preset": "album_artist/year-album"},
+    "tv": {"enabled": false}, "movies": {"enabled": false}
+  }
+}

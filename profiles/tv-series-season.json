@@ -1,0 +1,10 @@
+{
+  "name": "TV: Series / Season 01",
+  "sources": ["~/Downloads/TV"],
+  "categories": {
+    "tv": {"enabled": true, "root": "~/Videos/TV", "preset": "series/season", "numbering": "auto"},
+    "movies": {"enabled": true, "root": "~/Videos/Movies"},
+    "music": {"enabled": false}
+  },
+  "providers": {"tv": "none"}
+}

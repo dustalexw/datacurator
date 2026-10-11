@@ -1,0 +1,9 @@
+{
+  "name": "Photos by date, documents by project",
+  "sources": ["~/Desktop/Inbox"],
+  "categories": {
+    "photos": {"enabled": true, "root": "~/Pictures/Library", "date_fallback": "none"},
+    "documents": {"enabled": true, "root": "~/Documents/Projects"},
+    "music": {"enabled": false}, "tv": {"enabled": false}, "movies": {"enabled": false}
+  }
+}

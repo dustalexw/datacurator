@@ -1,0 +1,12 @@
+{
+  "name": "Music: Album Artist / Album",
+  "sources": ["~/Downloads/Music"],
+  "categories": {
+    "music": {"enabled": true, "root": "~/Music", "preset": "album_artist/album",
+              "compilation_name": "Various Artists", "singles_folder": ""},
+    "tv": {"enabled": false}, "movies": {"enabled": false}
+  },
+  "conflict_policy": "review",
+  "companions": {"update_references": true},
+  "cleanup_empty_dirs": true
+}

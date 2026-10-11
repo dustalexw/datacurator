@@ -138,6 +138,14 @@ def undo_batch(journal: Journal, catalog: Catalog | None, batch_id: str, fs: Loc
             fs.replace_own(tmp, op.dst)
             journal.set_state(op, "reverted", note=f"undone by {runner.batch}")
             rep.restored += 1
+            # the move that brought this file here is undone next; it must recognise the restored file
+            new_sig = _sig(fs.stat(op.dst))
+            for mv in ops:
+                if mv.kind in ("move", "quarantine") and mv.dst == op.dst and mv.state == "done":
+                    mv.dst_sig = new_sig
+                    if mv.cross:
+                        mv.src_hash = hash_file(op.dst)
+                    journal.save(mv)
         elif op.kind == "mkdir":
             if dry_run:
                 continue

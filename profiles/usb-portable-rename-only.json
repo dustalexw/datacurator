@@ -1,0 +1,9 @@
+{
+  "name": "USB stick: rename in place with portable names",
+  "sources": ["/media/usb"],
+  "categories": {
+    "music": {"enabled": true, "mode": "rename"},
+    "tv": {"enabled": true, "mode": "rename"}
+  },
+  "naming": {"preset": "portable"}
+}

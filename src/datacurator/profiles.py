@@ -93,6 +93,7 @@ DEFAULT_PROFILE: dict[str, Any] = {
     "scan": {"follow_symlinks": False, "cross_mounts": False, "include_hidden": False},
     "unattended": {"enabled": False},
     "network": {"max_concurrent_transfers": 1, "retries": 4},
+    "providers": {"tv": "none"},
 }
 
 
