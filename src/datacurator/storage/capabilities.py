@@ -28,13 +28,14 @@ IS_WIN = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
 
 NETWORK_FS = {"cifs", "smb", "smb2", "smb3", "smbfs", "nfs", "nfs4", "afpfs", "fuse.sshfs",
-              "sshfs", "9p", "davfs", "fuse.davfs", "webdav", "ncpfs", "fuse.rclone", "virtiofs"}
+              "sshfs", "9p", "davfs", "fuse.davfs", "webdav", "ncpfs", "fuse.rclone", "virtiofs",
+              "fuse.smbnetfs", "fuse.gvfsd-fuse", "fuse.s3fs", "smb2fs"}
 WINDOWS_STYLE_FS = {"ntfs", "ntfs3", "fuseblk", "vfat", "msdos", "fat", "fat32", "exfat",
-                    "fuse.exfat", "refs", "cifs", "smb", "smb2", "smb3", "smbfs"}
-CASE_INSENSITIVE_FS = {"vfat", "msdos", "fat", "fat32", "exfat", "fuse.exfat", "hfs", "apfs",
-                       "cifs", "smb", "smb2", "smb3", "smbfs"}
+                    "fuse.exfat", "fuse.fusefat", "refs", "cifs", "smb", "smb2", "smb3", "smbfs", "fuse.smbnetfs"}
+CASE_INSENSITIVE_FS = {"vfat", "msdos", "fat", "fat32", "exfat", "fuse.exfat", "fuse.fusefat", "hfs", "apfs",
+                       "cifs", "smb", "smb2", "smb3", "smbfs", "fuse.smbnetfs"}
 READ_ONLY_FS = {"iso9660", "udf", "squashfs", "cramfs", "erofs", "cd9660"}
-FAT_FS = {"vfat", "msdos", "fat", "fat32"}
+FAT_FS = {"vfat", "msdos", "fat", "fat32", "fuse.fusefat"}
 
 WIN_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
                 *(f"LPT{i}" for i in range(1, 10)), "COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³"}
@@ -98,6 +99,7 @@ class Capabilities:
     supports_acl: bool | None = None
     supports_ads: bool = False
     timestamp_resolution_ns: int = 1
+    ascii_only: bool = False          # driver rejects non-ASCII names (measured by probe)
     identity: VolumeIdentity = field(default_factory=VolumeIdentity)
     notes: list[str] = field(default_factory=list)
 
@@ -114,7 +116,7 @@ class Capabilities:
     def naming_signature(self) -> tuple:
         """Fields that influence generated names; a mismatch at apply time invalidates a plan."""
         return (self.case_sensitive, self.normalization_insensitive, self.windows_naming,
-                self.max_name_bytes, self.max_name_units, self.max_path)
+                self.max_name_bytes, self.max_name_units, self.max_path, self.ascii_only)
 
 
 def _mount_for(path: str):
@@ -220,7 +222,11 @@ def inspect(path: str) -> Capabilities:
     caps.fs_type = fs
     caps.is_network = caps.identity.is_network or path.startswith("\\\\")
     try:
-        caps.free_bytes = shutil.disk_usage(base).free
+        du = shutil.disk_usage(base)
+        if du.total > 0:
+            caps.free_bytes = du.free
+        else:
+            caps.notes.append("This filesystem does not report free space; space is checked while copying.")
     except OSError:
         pass
 
@@ -243,10 +249,11 @@ def inspect(path: str) -> Capabilities:
             caps.normalization_insensitive = True
             caps.notes.append("macOS volumes are usually case-insensitive; an active probe confirms.")
         if fs == "fuseblk":
-            caps.notes.append("fuseblk is usually NTFS via ntfs-3g; Windows naming rules applied for portability.")
+            caps.notes.append("fuseblk is a FUSE block filesystem (commonly NTFS via ntfs-3g or exFAT); "
+                              "Windows naming rules are applied and an active probe measures the rest.")
         if hasattr(os, "pathconf"):
             try:
-                caps.max_name_bytes = os.pathconf(base, "PC_NAME_MAX")
+                caps.max_name_bytes = min(255, os.pathconf(base, "PC_NAME_MAX"))
             except (OSError, ValueError):
                 pass
             try:
@@ -309,6 +316,16 @@ def probe(path: str) -> Capabilities:
         caps.probed = "active"
         upper = os.path.join(base, f".CURATOR-PROBE-{token}-A")
         caps.case_sensitive = not os.path.exists(upper)
+        # Some drivers (e.g. userspace FAT) refuse non-ASCII names entirely
+        uni = os.path.join(base, f".curator-probe-{token}-ü")
+        try:
+            fd = os.open(uni, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+            created.append(uni)
+        except OSError as e:
+            if e.errno in (errno.EPERM, errno.EINVAL, errno.EILSEQ, errno.EIO):
+                caps.ascii_only = True
+                caps.notes.append("This filesystem driver rejects non-ASCII filenames; names will be transliterated.")
         # Unicode normalization: create NFD name, look it up as NFC
         nfd = os.path.join(base, unicodedata.normalize("NFD", f".curator-probe-{token}-é"))
         nfc = os.path.join(base, unicodedata.normalize("NFC", f".curator-probe-{token}-é"))
@@ -346,7 +363,9 @@ def probe(path: str) -> Capabilities:
             caps.supports_hardlinks = True
         except (OSError, NotImplementedError):
             caps.supports_hardlinks = False
-        if hasattr(os, "setxattr"):
+        if hasattr(os, "setxattr") and not xattr_safe(base):
+            caps.supports_xattr = False
+        elif hasattr(os, "setxattr"):
             try:
                 os.setxattr(lower, "user.curator.probe", b"1")
                 caps.supports_xattr = True
@@ -393,3 +412,21 @@ def check_reachable(path: str, timeout: float = 5.0) -> tuple[bool, str]:
     if result.get("ok"):
         return True, "Reachable"
     return False, result.get("err", "Folder not found")
+
+
+_XATTR_CACHE: dict[str, bool] = {}
+
+
+def xattr_safe(path: str) -> bool:
+    """Whether extended-attribute calls are supported and safe on the filesystem holding `path`.
+
+    Some FUSE network clients fail hard (and wedge the mount) on xattr calls, so
+    network, FAT and exFAT filesystems are never asked.
+    """
+    mp, fstype, _ = _mount_for(path)
+    if mp in _XATTR_CACHE:
+        return _XATTR_CACHE[mp]
+    ok = not (fstype in NETWORK_FS or fstype in FAT_FS or fstype in {"exfat", "fuse.exfat", "fuseblk", "vfat"}
+              or fstype.startswith("fuse.smb") or fstype in READ_ONLY_FS)
+    _XATTR_CACHE[mp] = ok
+    return ok

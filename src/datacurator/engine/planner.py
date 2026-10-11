@@ -23,7 +23,7 @@ from ..storage.capabilities import Capabilities, inspect, volume_identity
 from ..storage.catalog import Catalog
 from .planstore import PlanStore
 from .scanner import normalize_roots
-from .util import DirListingCache, hash_file, is_within, stat_sig
+from .util import DirListingCache, hash_file, is_within, same_entry, stat_sig
 
 VARIOUS = {"various artists", "various", "va", "v.a.", "v/a", "varios artistas", "verschiedene interpreten",
            "artistes divers", "compilation", "soundtrack artists"}
@@ -127,11 +127,13 @@ class Planner:
         if c is None:
             caps = self._caps_override.get(root)
             if caps is None:
-                caps = inspect(root)
-                cached = self.cat.cached_capabilities(root)
+                caps = self._measure(root)
+                cached = self.cat.cached_capabilities(root) if caps.probed != "active" else None
                 if cached:
                     cc = Capabilities.from_dict(cached)
-                    ok, _ = cc.identity.matches(caps.identity)
+                    ref = cc.identity.path
+                    cur = volume_identity(ref) if ref and os.path.isdir(ref) else caps.identity
+                    ok, _ = cc.identity.matches(cur)
                     if ok:
                         cc.free_bytes = caps.free_bytes
                         caps = cc
@@ -148,6 +150,23 @@ class Planner:
             c = _Ctx(root, caps, dev)
             self._ctx[root] = c
         return c
+
+    def _measure(self, root: str) -> Capabilities:
+        """Actively probe a destination unless that would write inside a source folder.
+
+        Previews never write into sources; a hidden probe file in a separate
+        destination folder is created and removed immediately."""
+        from ..storage.capabilities import nearest_existing, probe
+        base = nearest_existing(root)
+        if any(is_within(base, s) for s in self.sources):
+            return inspect(root)
+        try:
+            caps = probe(root)
+        except OSError:
+            return inspect(root)
+        if caps.probed == "active":
+            self.cat.store_capabilities(root, caps.to_dict())
+        return caps
 
     def key(self, path: str, root: str) -> str:
         return equivalence_key(path, self.ctx(root).caps, self.rules)
@@ -1289,7 +1308,7 @@ class Planner:
                 continue
             existing = os.path.join(d, lst[k])
             try:
-                if os.path.samefile(existing, it.source):
+                if same_entry(existing, it.source):
                     if lst[k] == n:
                         it.action = Action.NONE.value
                         it.reason = "Already organized: " + it.reason

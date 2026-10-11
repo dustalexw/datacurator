@@ -69,6 +69,12 @@ def sanitize_component(name: str, rules: NamingRules, caps: Capabilities | None,
         if n != s:
             reasons.append(f"Unicode normalized to {rules.unicode_form}")
             s = n
+    if caps is not None and caps.ascii_only and not s.isascii():
+        t = unicodedata.normalize("NFKD", s)
+        t = "".join(ch for ch in t if not unicodedata.combining(ch))
+        t = "".join(ch if ch.isascii() else "_" for ch in t)
+        reasons.append("transliterated to ASCII (this filesystem accepts only ASCII names)")
+        s = t
     ctrl = "".join(ch for ch in s if ord(ch) < 32 or ord(ch) == 127)
     if ctrl:
         s = "".join(ch for ch in s if not (ord(ch) < 32 or ord(ch) == 127))

@@ -8,9 +8,12 @@ import ctypes
 import errno
 import os
 import shutil
+import stat as stat_mod
 import sys
+import unicodedata
 
 from ..engine.util import fsync_dir
+from .capabilities import xattr_safe
 
 _RENAME_NOREPLACE = 1
 _AT_FDCWD = -100
@@ -42,6 +45,24 @@ class LocalFS:
     def exists(self, p: str) -> bool:
         return os.path.lexists(p)
 
+    def exists_entry(self, p: str) -> bool:
+        """Existence confirmed by the directory listing.
+
+        FUSE clients (FAT/exFAT drivers, SMB clients) on case-insensitive volumes can
+        keep a stale cached alias after a rename; readdir is authoritative.
+        """
+        if not os.path.lexists(p):
+            return False
+        d, n = os.path.split(p)
+        try:
+            names = os.listdir(d)
+        except OSError:
+            return True
+        if n in names:
+            return True
+        key = unicodedata.normalize("NFC", n).casefold()
+        return any(unicodedata.normalize("NFC", x).casefold() == key for x in names)
+
     def isdir(self, p: str) -> bool:
         return os.path.isdir(p)
 
@@ -71,12 +92,33 @@ class LocalFS:
         fsync_dir(p)
 
     def copystat(self, src: str, dst: str) -> list[str]:
-        """Copy timestamps/mode (and xattrs where Python supports it). Returns notes on anything lost."""
-        notes = []
+        """Copy timestamps and permission bits, plus extended attributes where both sides
+        support them. Returns notes on anything that could not be preserved."""
+        notes: list[str] = []
+        if not sys.platform.startswith("linux"):
+            try:
+                shutil.copystat(src, dst, follow_symlinks=False)
+            except OSError as e:
+                notes.append(f"some attributes could not be copied ({e.strerror})")
+            return notes
+        st = os.stat(src)
         try:
-            shutil.copystat(src, dst, follow_symlinks=False)
-        except OSError as e:
-            notes.append(f"some attributes could not be copied ({e.strerror})")
+            os.utime(dst, ns=(st.st_atime_ns, st.st_mtime_ns))
+        except OSError:
+            notes.append("timestamps could not be preserved")
+        try:
+            os.chmod(dst, stat_mod.S_IMODE(st.st_mode))
+        except OSError:
+            notes.append("permissions could not be preserved")
+        if xattr_safe(src) and xattr_safe(dst):
+            try:
+                for name in os.listxattr(src):
+                    try:
+                        os.setxattr(dst, name, os.getxattr(src, name))
+                    except OSError:
+                        notes.append(f"extended attribute {name} not copied")
+            except OSError:
+                notes.append("extended attributes not copied")
         return notes
 
     def open_read(self, p: str):
@@ -136,7 +178,7 @@ class LocalFS:
                                errno.ENOSYS, errno.EACCES):
                 raise
         # Fallback 2: check-then-rename (small race window; documented limitation)
-        if os.path.lexists(dst):
+        if self.exists_entry(dst):
             raise FileExistsError(errno.EEXIST, "Destination exists", dst)
         os.rename(src, dst)
         return "checked-rename"

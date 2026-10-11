@@ -28,7 +28,7 @@ from ..storage.catalog import Catalog
 from ..storage.fsops import LocalFS
 from .journal import Journal, Op
 from .planstore import PlanStore
-from .util import CHUNK, hash_file, is_within, is_within_real
+from .util import CHUNK, hash_file, is_within, is_within_real, same_entry
 
 TRANSIENT_ERRNOS = {errno.EAGAIN, errno.EBUSY, errno.ETIMEDOUT, errno.EINTR, errno.ECONNRESET,
                     errno.ECONNABORTED, errno.EHOSTUNREACH, errno.ENETRESET, errno.ENETUNREACH,
@@ -247,7 +247,7 @@ class Executor:
             return "no destination"
         if not is_within(it.dest, it.dest_root) or not is_within_real(it.dest, it.dest_root):
             return "destination would be outside the selected destination folder"
-        if self.fs.exists(it.dest) and not self.fs.samefile(it.dest, it.source):
+        if self.fs.exists_entry(it.dest) and not same_entry(it.dest, it.source):
             occupant = self.plan.by_source(it.dest)
             if not (occupant and occupant.action == Action.MOVE.value):
                 return f"a file already exists at {it.dest} (never overwritten)"
@@ -468,8 +468,8 @@ class Executor:
         try:
             self._check_root(it.dest_root)
             self._verify_source(it, src) if not staged_from else None
-            if self.fs.exists(it.dest):
-                if not self.fs.samefile(it.dest, src):
+            if self.fs.exists_entry(it.dest):
+                if not (self.fs.samefile(it.dest, src) or same_entry(it.dest, src)):
                     raise FileExistsError(errno.EEXIST, "destination exists", it.dest)
             self._ensure_dirs(os.path.dirname(it.dest), it.dest_root, it.id)
             move_file(self, op, src, it.dest)

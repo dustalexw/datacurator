@@ -100,3 +100,30 @@ class DirListingCache:
         if len(self._d) > self.max:
             self._d.popitem(last=False)
         return val
+
+
+def same_entry(a: str, b: str) -> bool:
+    """True if paths `a` and `b` name the same directory entry.
+
+    Uses inode identity, and falls back to a listing check for filesystems
+    (FUSE FAT/exFAT, SMB clients) whose inode numbers are not stable: on a
+    case-insensitive volume "x/Song.flac" and "x/song.flac" are the same entry
+    when only one of the two spellings is listed.
+    """
+    try:
+        if os.path.samefile(a, b):
+            return True
+    except OSError:
+        return False
+    da, na = os.path.split(a)
+    db, nb = os.path.split(b)
+    if os.path.normcase(da) != os.path.normcase(db) or na == nb:
+        return False
+    import unicodedata
+    if unicodedata.normalize("NFC", na).casefold() != unicodedata.normalize("NFC", nb).casefold():
+        return False
+    try:
+        names = set(os.listdir(da))
+    except OSError:
+        return False
+    return (na in names) != (nb in names)
