@@ -70,6 +70,31 @@ Files without a capture date stay in review unless you set a year/month or choos
 fallback in Rules → Photos. Enabled Photos and Documents rules take priority over automatic
 companion matching for HEIC/HEIF and PDFs in folders containing music or videos.
 
+## Music library
+
+The **Music library** page offers artist/album browsing, sortable track columns, search, and filters
+for missing details, unreadable tags and edited tracks. **Scan music library** reads the Sources
+without moving files. The main scan/preview also refreshes this view.
+
+- Select tracks (or **Select all shown**) and use **Edit details…** to change several fields together.
+  Only checked fields change, so tracks keep their individual titles and numbers when you edit an album.
+- **Details from filenames…** previews metadata from an exact pattern such as
+  `{album_artist}/{album}/{track} - {title}`. Folder patterns start at the source; omit the extension.
+  **Fill missing details only** protects existing values. Accept the displayed suggestions to save
+  them for organization; unmatched names stay unchanged. The last filename pattern is remembered.
+- Choose a layout and click **Use layout**, then **Scan and preview organization**. Enable
+  **Organize inside each source folder** to use each source as its destination. The **Music / Album
+  Artist / Album** layout creates a `Music` folder within each source. **Keep filenames** sorts without
+  renaming. Genre, format, year/album and multi-disc layouts are also available.
+- Details edits are stored locally for organization. To embed them in the audio files, explicitly
+  check **Write edited details into audio files when applying**. Those writes appear in the preview
+  and use the existing backup/undo workflow. Save your profile to reuse the layout and options.
+
+`profiles/music-in-source.json` provides a music-only starting profile. This workflow is inspired by
+[MediaMonkey's file organization](https://www.mediamonkey.com/wiki/WebHelp%3AChanging_Filenames) and
+[tag-from-filename preview](https://mediamonkey.com/wiki/WebHelp%3AAuto-Tag_from_Filename).
+Online identification, artwork downloads and playback are not included.
+
 ## Command line
 
 The CLI uses the same engine.

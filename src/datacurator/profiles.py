@@ -15,6 +15,15 @@ from .naming.template import validate
 
 PRESETS: dict[str, dict[str, dict[str, str]]] = {
     "music": {
+        "music_in_source": {"folder": "Music/{album_artist}/{album}",
+                            "filename": "[{disc}-][{track:02} - ]{title}",
+                            "label": "Music / Album Artist / Album / 01 - Title"},
+        "genre/album_artist/album": {"folder": "{genre}/{album_artist}/{album}",
+                                     "filename": "[{disc}-][{track:02} - ]{title}",
+                                     "label": "Genre / Album Artist / Album / 01 - Title"},
+        "format/album_artist/album": {"folder": "{format}/{album_artist}/{album}",
+                                      "filename": "[{disc}-][{track:02} - ]{title}",
+                                      "label": "Format / Album Artist / Album / 01 - Title"},
         "album_artist/album": {"folder": "{album_artist}/{album}",
                                "filename": "[{disc}-][{track:02} - ]{title}",
                                "label": "Album Artist / Album / 01 - Title"},

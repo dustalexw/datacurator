@@ -7,6 +7,7 @@ import traceback
 from PySide6.QtCore import QObject, QThread, Signal
 
 from ..engine.executor import Control
+from ..engine.music import library_rows
 
 
 class Worker(QObject):
@@ -61,13 +62,24 @@ def job_scan_plan(w: Worker, engine, profile):
     def pp(d, n):
         w.progress.emit(f"Planning… {n:,} files", n, 0)
     store = engine.plan(profile, progress=pp, cancel=w.cancel_event)
-    return {"stats": stats, "store": store}
+    return {"stats": stats, "store": store,
+            "music": library_rows(engine.catalog, profile["sources"], w.cancel_event)}
 
 
 def job_plan(w: Worker, engine, profile):
     def pp(d, n):
         w.progress.emit(f"Planning… {n:,} files", n, 0)
-    return {"store": engine.plan(profile, progress=pp, cancel=w.cancel_event)}
+    return {"store": engine.plan(profile, progress=pp, cancel=w.cancel_event),
+            "music": library_rows(engine.catalog, profile["sources"], w.cancel_event)}
+
+
+def job_music_library(w: Worker, engine, profile, scan=False):
+    if scan:
+        stats = engine.scan(profile, progress=lambda d, n: w.progress.emit(f"Scanning… {n:,} files", n, 0),
+                            cancel=w.cancel_event)
+        if stats.cancelled:
+            return None
+    return library_rows(engine.catalog, profile["sources"], w.cancel_event)
 
 
 def job_apply(w: Worker, engine, store, approve_deletes=False):

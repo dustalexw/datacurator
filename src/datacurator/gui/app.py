@@ -25,6 +25,7 @@ from .. import profiles as P
 from ..engine.api import Engine
 from ..engine.executor import fmt_bytes
 from ..engine.planstore import explain
+from ..engine.music import save_details
 from ..models import CuratorError, PreflightError
 from ..naming.template import TOKENS_BY_CATEGORY, Template
 from ..storage import locations as L
@@ -32,6 +33,7 @@ from . import workers as W
 from . import theme as T
 from .models import PlanTableModel, build_tree
 from .about import AboutDialog
+from .music import MusicPage
 
 CATS = [("music", "Music"), ("tv", "TV"), ("movies", "Movies"), ("documents", "Documents"), ("photos", "Photos"),
         ("other", "Other files")]
@@ -301,7 +303,7 @@ class MainWindow(QMainWindow):
         self.steps = QListWidget()
         self.steps.setObjectName("steps")
         self.steps.setAccessibleName("Workflow steps")
-        for t in ("①  Sources", "②  Rules", "③  Review", "④  Results"):
+        for t in ("①  Sources", "②  Rules", "③  Review", "④  Results", "♫  Music library"):
             self.steps.addItem(QListWidgetItem(t))
         sl.addWidget(self.steps, 1)
         safe = QGroupBox()
@@ -320,6 +322,11 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self._page_rules())
         self.pages.addWidget(self._page_review())
         self.pages.addWidget(self._page_results())
+        self.music_page = MusicPage(self, self.scan_music_library, self.save_music_details,
+                                    self.use_music_layout, self.scan_and_preview)
+        self.pages.addWidget(self.music_page)
+        self.music_page.write_tags.toggled.connect(self.opt_tags.setChecked)
+        self.opt_tags.toggled.connect(self.music_page.write_tags.setChecked)
         self.steps.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.steps.setCurrentRow(0)
 
@@ -381,6 +388,11 @@ class MainWindow(QMainWindow):
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
         h.addAction(self.about_action)
+        music = self.menuBar().addMenu("&Music")
+        browse = music.addAction("Browse music library")
+        browse.setShortcut("Ctrl+M")
+        browse.triggered.connect(lambda: self.steps.setCurrentRow(4))
+        music.addAction("Scan music library", self.scan_music_library)
 
     def show_about(self):
         AboutDialog(self).exec()
@@ -728,6 +740,8 @@ class MainWindow(QMainWindow):
         self.opt_hidden.setChecked(prof["scan"].get("include_hidden", False))
         self.provider.setCurrentIndex(max(0, self.provider.findData((prof.get("providers") or {}).get("tv", "none"))))
         self.profile_label.setText(self.profile_path or "Unsaved profile")
+        self.music_page.set_layout(prof["categories"]["music"])
+        self.music_page.set_rows([])
 
     def current_profile(self) -> dict:
         p = copy.deepcopy(self.profile)
@@ -875,6 +889,58 @@ class MainWindow(QMainWindow):
             self.save_profile()
 
     # ================================================================== scan / plan
+    def scan_music_library(self):
+        try:
+            prof = P.normalize(self.current_profile())
+        except CuratorError as e:
+            QMessageBox.warning(self, "Please check the rules", str(e))
+            return
+        if not prof["sources"]:
+            QMessageBox.information(self, "No sources", "Add a source folder before scanning music.")
+            self.steps.setCurrentRow(0)
+            return
+        self._rules_changed()
+        self.steps.setCurrentRow(4)
+        self._run(W.job_music_library, self._music_loaded, self.engine, prof, scan=True, cancellable=True)
+
+    def _music_loaded(self, rows):
+        if rows is None:
+            self.status_text.setText("Music scan cancelled. Scan again to refresh the library.")
+            return
+        self.music_page.set_rows(rows)
+        self.status_text.setText("Music library ready. No audio files were changed.")
+
+    def save_music_details(self, changes):
+        if self.thread is not None:
+            return
+        try:
+            count = save_details(self.engine.catalog, changes)
+        except CuratorError as e:
+            QMessageBox.warning(self, "Cannot save music details", str(e))
+            return
+        self._rules_changed()
+        self.status_text.setText(f"Saved {count:,} music details. Preview organization before applying.")
+        self._run(W.job_music_library, self.music_page.set_rows, self.engine, self.current_profile(), quiet=True)
+
+    def use_music_layout(self, key, inside, keep_names):
+        if self.thread is not None:
+            return
+        cfg = P.apply_preset(self.current_profile()["categories"]["music"], "music", key)
+        cfg.update(enabled=True, mode="move" if keep_names else "move_and_rename")
+        if inside:
+            cfg["root"] = ""
+        elif not cfg.get("root"):
+            folder = QFileDialog.getExistingDirectory(self, "Choose music destination")
+            if not folder:
+                return
+            cfg["root"] = folder
+        with QSignalBlocker(self.dest_edits["music"]):
+            self.dest_edits["music"].setText(cfg["root"])
+        self.editors["music"].load(cfg)
+        self.music_page.set_layout(cfg)
+        self._rules_changed()
+        self.status_text.setText("Music layout selected. Scan and preview to review the proposed folders.")
+
     def scan_and_preview(self):
         try:
             prof = P.normalize(self.current_profile())
@@ -903,6 +969,8 @@ class MainWindow(QMainWindow):
             self.status_text.setText("Scan cancelled. Nothing was changed.")
             return
         self.store = res["store"]
+        if res.get("music") is not None:
+            self.music_page.set_rows(res["music"])
         self.model.set_store(self.store)
         self.tree.setModel(build_tree(self.store))
         self.tree.expandToDepth(1)
@@ -1052,6 +1120,8 @@ class MainWindow(QMainWindow):
         self.store = None
         self.model.set_store(None)
         self.summary.setText("Applied. Run “Scan and preview” to check the result.")
+        self.music_page.set_rows([])
+        self.music_page.summary.setText("Files were organized. Scan music library to refresh locations.")
 
     def refresh_history(self):
         bs = self.engine.journal.batches(200)
@@ -1140,6 +1210,7 @@ class MainWindow(QMainWindow):
             return
         worker = W.Worker(fn, *args, **kw)
         self.worker = worker
+        self.music_page.set_busy(True)
         if not quiet:
             self.progress.setVisible(True)
             self.progress.setRange(0, 0)
@@ -1168,6 +1239,7 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setVisible(False)
         self.pause_btn.setVisible(False)
         self.scan_btn.setEnabled(True)
+        self.music_page.set_busy(False)
 
     def _on_finished(self, res):
         self._finish_task()

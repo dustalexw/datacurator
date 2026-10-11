@@ -1,0 +1,14 @@
+{
+  "name": "Music within each source",
+  "sources": [],
+  "categories": {
+    "music": {"enabled": true, "root": "", "preset": "music_in_source", "mode": "move_and_rename"},
+    "tv": {"enabled": false},
+    "movies": {"enabled": false},
+    "photos": {"enabled": false},
+    "documents": {"enabled": false},
+    "other": {"enabled": false}
+  },
+  "write_tags": false,
+  "cleanup_empty_dirs": false
+}
