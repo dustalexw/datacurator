@@ -217,7 +217,7 @@ class DuplicatePage(QWidget):
         self.busy = False
         lay = QVBoxLayout(self)
         lay.setContentsMargins(28, 22, 28, 20)
-        lay.addWidget(T.GradientTitle("Find identical copies", 20))
+        lay.addWidget(T.BrandTitle("Find identical copies", 20))
         lay.addWidget(hint("Search the selected sources by file size, then verify matching content. "
             "Choose extra copies to move to quarantine; the retained copy is checked again before each move. "
             "Quarantine moves can be undone in Results."))

@@ -191,7 +191,7 @@ class MusicPage(QWidget):
         self.setObjectName("Page")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 22, 28, 20)
-        layout.addWidget(T.GradientTitle("Music library", 20))
+        layout.addWidget(T.BrandTitle("Music library", 20))
         hint = QLabel("Browse your source folders by artist and album. Edit music details, choose a layout, "
                       "then preview the changes before organizing.")
         hint.setWordWrap(True)
