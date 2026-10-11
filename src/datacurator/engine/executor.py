@@ -248,7 +248,7 @@ class Executor:
         if not is_within(it.dest, it.dest_root) or not is_within_real(it.dest, it.dest_root):
             return "destination would be outside the selected destination folder"
         if self.fs.exists_entry(it.dest) and not same_entry(it.dest, it.source):
-            occupant = self.plan.by_source(it.dest)
+            occupant = self.plan.by_source(it.dest) or self.plan.by_source(_actual_entry(it.dest))
             if not (occupant and occupant.action == Action.MOVE.value):
                 return f"a file already exists at {it.dest} (never overwritten)"
         src_dir = os.path.dirname(it.source)
@@ -520,8 +520,12 @@ class Executor:
                 op = self.j.add(Op(0, self.batch, it.id, "stage", tmp, it.source, state="started"))
                 self.fs.rename_noreplace(tmp, it.source)
                 self.j.set_state(op, "done", note="reverted staging")
+                return
         except OSError:
             pass
+        if self.fs.exists(tmp) and self.result:
+            self.result.errors.append((it.source, f"kept safely under the temporary name {tmp} because its "
+                                                  "original name is now taken; rename it when convenient"))
 
     # ---------------------------------------------------------------- content ops
     def _final_path(self, it: PlanItem) -> str:
@@ -584,6 +588,20 @@ class Executor:
 
 
 # ---------------------------------------------------------------------- shared primitives
+
+def _actual_entry(path: str) -> str:
+    """The on-disk spelling of `path`'s last component (case/Unicode-insensitive match)."""
+    import unicodedata
+    d, n = os.path.split(path)
+    key = unicodedata.normalize("NFC", n).casefold()
+    try:
+        for x in os.listdir(d):
+            if unicodedata.normalize("NFC", x).casefold() == key:
+                return os.path.join(d, x)
+    except OSError:
+        pass
+    return path
+
 
 def _sig(st: os.stat_result) -> dict[str, int]:
     return {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "ino": st.st_ino, "dev": st.st_dev}
