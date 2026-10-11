@@ -8,6 +8,11 @@ on:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Publish the builds as a GitHub release with this tag (leave empty to only build)"
+        required: false
+        default: ""
 
 jobs:
   test:
@@ -86,7 +91,9 @@ jobs:
 
   release:
     name: Publish release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+    env:
+      TAG: ${{ inputs.release_tag || github.ref_name }}
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -98,6 +105,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" out/* --repo "${GITHUB_REPOSITORY}" \
-            --title "Data Curator ${GITHUB_REF_NAME}" \
+          gh release create "$TAG" out/* --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
+            --title "Data Curator $TAG" \
             --notes "macOS builds (arm64 = Apple silicon, x86_64 = Intel). Ad-hoc signed, not notarized: on first launch right-click the app and choose Open."
