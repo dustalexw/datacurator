@@ -1,0 +1,73 @@
+name: macOS build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-13]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: brew install ffmpeg
+      - run: python -m pip install -e ".[gui,dev]"
+      - name: Test suite (APFS, real macOS)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -v -rs
+
+  build:
+    name: Build .app (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            arch: arm64
+          - os: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[gui,dev]"
+      - name: PyInstaller
+        run: pyinstaller packaging/datacurator.spec --noconfirm
+      - name: Ad-hoc sign (not notarized)
+        run: codesign --force --deep --sign - "dist/Data Curator.app"
+      - name: Smoke test the built CLI
+        run: |
+          "dist/Data Curator.app/Contents/MacOS/curator" --version
+          "dist/Data Curator.app/Contents/MacOS/curator" --data-dir /tmp/dc probe /tmp
+      - name: Smoke test the built app starts
+        env:
+          QT_QPA_PLATFORM: offscreen
+          DATACURATOR_HOME: /tmp/dc
+        run: |
+          "dist/Data Curator.app/Contents/MacOS/DataCurator" &
+          PID=$!; sleep 8
+          kill -0 $PID && echo "app is running" && kill $PID
+      - name: Package (zip + dmg)
+        run: |
+          cd dist
+          ditto -c -k --keepParent "Data Curator.app" "DataCurator-1.0.0-macos-${{ matrix.arch }}.zip"
+          hdiutil create -volname "Data Curator" -srcfolder "Data Curator.app" -ov -format UDZO \
+            "DataCurator-1.0.0-macos-${{ matrix.arch }}.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DataCurator-macos-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
