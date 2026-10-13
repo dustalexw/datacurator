@@ -275,6 +275,7 @@ class MainWindow(QMainWindow):
         os.makedirs(self.profiles_dir, exist_ok=True)
 
         self.setWindowIcon(T.app_icon())
+        macchrome.prepare(self)
         central = QWidget()
         central.setObjectName("Root")
         root = QHBoxLayout(central)
@@ -413,7 +414,7 @@ class MainWindow(QMainWindow):
     def _apply_chrome(self):
         """Run the sidebar and page colours up under a transparent macOS title bar."""
         on = macchrome.integrate(self, self.palette().color(QPalette.Window))
-        inset = macchrome.TITLEBAR_HEIGHT if on and not self.isFullScreen() else 0
+        inset = macchrome.top_inset(self, macchrome.TITLEBAR_HEIGHT) if on and not self.isFullScreen() else 0
         if inset != self._chrome_inset:
             self._chrome_inset = inset
             self._side_layout.setContentsMargins(16, 18 + inset, 16, 14)
@@ -422,6 +423,10 @@ class MainWindow(QMainWindow):
     def showEvent(self, ev):
         super().showEvent(ev)
         self._apply_chrome()
+        handle = self.windowHandle()
+        if handle is not None and hasattr(handle, "safeAreaMarginsChanged") and not getattr(self, "_watching_safe_area", False):
+            self._watching_safe_area = True
+            handle.safeAreaMarginsChanged.connect(lambda *_: self._apply_chrome())
 
     def changeEvent(self, ev):
         super().changeEvent(ev)
