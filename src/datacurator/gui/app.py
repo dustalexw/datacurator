@@ -11,7 +11,7 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QSettings, QSignalBlocker, Qt, QTimer
+from PySide6.QtCore import QEvent, QSettings, QSignalBlocker, Qt, QTimer
 from PySide6.QtGui import QAction, QFont, QKeySequence, QPalette
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView,
@@ -30,6 +30,7 @@ from ..models import CuratorError, PreflightError
 from ..naming.template import TOKENS_BY_CATEGORY, Template
 from ..storage import locations as L
 from . import workers as W
+from . import macchrome
 from . import theme as T
 from .models import PlanTableModel, build_tree
 from .about import AboutDialog
@@ -284,6 +285,8 @@ class MainWindow(QMainWindow):
         side.setFixedWidth(232)
         sl = QVBoxLayout(side)
         sl.setContentsMargins(16, 18, 16, 14)
+        self._side_layout = sl
+        self._chrome_inset = 0
         brand = QHBoxLayout()
         logo = QLabel()
         logo.setPixmap(T.logo_pixmap(46))
@@ -406,8 +409,44 @@ class MainWindow(QMainWindow):
     def show_about(self):
         AboutDialog(self).exec()
 
+    # ------------------------------------------------------------ title bar
+    def _apply_chrome(self):
+        """Run the sidebar and page colours up under a transparent macOS title bar."""
+        on = macchrome.integrate(self, self.palette().color(QPalette.Window))
+        inset = macchrome.TITLEBAR_HEIGHT if on and not self.isFullScreen() else 0
+        if inset != self._chrome_inset:
+            self._chrome_inset = inset
+            self._side_layout.setContentsMargins(16, 18 + inset, 16, 14)
+            self.pages.setContentsMargins(0, inset, 0, 0)
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        self._apply_chrome()
+
+    def changeEvent(self, ev):
+        super().changeEvent(ev)
+        if ev.type() == QEvent.WindowStateChange:
+            QTimer.singleShot(0, self._apply_chrome)
+
+    def mousePressEvent(self, ev):
+        # The title bar strip drags the window even where Qt, not macOS, gets the click.
+        handle = self.windowHandle()
+        if ev.button() == Qt.LeftButton and ev.position().y() < self._chrome_inset and handle:
+            handle.startSystemMove()
+            ev.accept()
+            return
+        super().mousePressEvent(ev)
+
+    def mouseDoubleClickEvent(self, ev):
+        if ev.button() == Qt.LeftButton and ev.position().y() < self._chrome_inset:
+            self.showNormal() if self.isMaximized() else self.showMaximized()
+            ev.accept()
+            return
+        super().mouseDoubleClickEvent(ev)
+
     def set_theme(self, name: str):
         name = T.apply(QApplication.instance(), name)
+        self._apply_chrome()
         self.settings.setValue("theme", name)
         for key, action in self.theme_actions.items():
             action.setChecked(key == name)
