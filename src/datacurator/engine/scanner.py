@@ -184,6 +184,7 @@ def _scan_root(root, catalog, opts, stats, exclude, scan_id, workers, progress, 
                         continue
                 except OSError as ex:
                     stats.errors.append(f"{full}: {ex.strerror}")
+                    complete = False
                     continue
                 ext = os.path.splitext(name)[1]
                 kind = kind_for(ext).value

@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ..metadata.audio import primary_artist, year_of
+from ..profiles import destination_root
 from ..metadata.video import (episode_code, parse_movie, parse_tv, subtitle_suffix)
 from ..metadata.video import movie_search_hint
 from ..models import (ALT_AUDIO_EXT, HEIF_EXT, Action, Category, FileRecord, Flag, Kind, PlanItem)
@@ -25,7 +26,7 @@ from ..storage.catalog import Catalog
 from .planstore import PlanStore
 from .scanner import normalize_roots
 from .exclusions import DirectoryExclusions
-from .util import DirListingCache, hash_file, is_within, same_entry, stat_sig
+from .util import DirListingCache, hash_file, is_within, is_within_real, same_entry, stat_sig
 
 VARIOUS = {"various artists", "various", "va", "v.a.", "v/a", "varios artistas", "verschiedene interpreten",
            "artistes divers", "compilation", "soundtrack artists"}
@@ -208,14 +209,15 @@ class Planner:
             raise InterruptedError("Planning cancelled")
 
     def dest_root(self, category: str, rec: FileRecord) -> str:
-        r = self.cfg[category].get("root") or ""
-        return r or rec.root
+        return destination_root(self.cfg[category], rec.root)
 
     # ---------------------------------------------------------- path building
     def _canonical_dir(self, root: str, comps: list[str]) -> tuple[str, str | None]:
         """Join components under root, reusing the spelling of existing folders and of
         folders already chosen in this plan, so equivalent names never fork a folder."""
         cur = root
+        if os.path.exists(root) and not os.path.isdir(root):
+            return root, "the destination folder is occupied by a file"
         r = root
         while not os.path.isdir(r) and r not in self.new_dirs:
             self.new_dirs.add(r)
@@ -259,6 +261,8 @@ class Planner:
             comps: list[str] = []
         else:
             root = self.dest_root(category, rec)
+            if cfg.get("source_subfolder") and not is_within_real(root, rec.root):
+                return _Built(None, root=root, error="the category folder links outside its source folder")
             if folder_override is not None:
                 comps, miss = folder_override.split("/"), []
             else:
@@ -425,7 +429,7 @@ class Planner:
         self._resolve_existing_collisions()
         self._propagate_companions()
         store.flush()
-        dest_roots = sorted({r for r in (self.cfg[c].get("root") for c in self.cfg) if r} | set(self.sources))
+        dest_roots = sorted(set(self._ctx) | set(self.sources))
         store.set_header("dest_caps", {r: self.ctx(r).caps.to_dict() for r in dest_roots})
         store.set_header("new_dirs", sorted(self.new_dirs))
         store.set_header("summary", store.summary())
@@ -470,8 +474,8 @@ class Planner:
             # Explicit Photos/Documents rules take precedence over automatic
             # album-booklet and same-stem video-companion guesses in mixed folders.
             ext = os.path.splitext(name)[1].lower()
-            category = ("photos" if r.kind == Kind.IMAGE.value and ext in HEIF_EXT else
-                        "documents" if r.kind == Kind.DOCUMENT.value and ext == ".pdf" else None)
+            category = ("photos" if r.kind == Kind.IMAGE.value and (ext in HEIF_EXT or self.cfg["photos"].get("source_subfolder")) else
+                        "documents" if r.kind == Kind.DOCUMENT.value and (ext == ".pdf" or self.cfg["documents"].get("source_subfolder")) else None)
             if category and (self.cfg[category]["enabled"] or ext in self.extension_folders):
                 if r not in extra:
                     out[category].append(r)
@@ -1357,7 +1361,11 @@ class Planner:
             built = self.build_path(cat, r, vals, vals)
             store.add(self.make_item(r, cat, built, f"Photo taken {year}-{month or 0:02d}.", provenance=prov))
             return
-        rel = os.path.relpath(os.path.dirname(r.path), r.root)
+        base = r.root
+        category_root = self.dest_root(cat, r)
+        if cfg.get("source_subfolder") and is_within(os.path.dirname(r.path), category_root):
+            base = category_root
+        rel = os.path.relpath(os.path.dirname(r.path), base)
         parts = [] if rel == "." else rel.split(os.sep)
         vals = {"project": o.get("project") or (parts[0] if parts else None),
                 "subpath": os.path.join(*parts) if parts else None, "name": o.get("name") or stem,
