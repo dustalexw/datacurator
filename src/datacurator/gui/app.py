@@ -266,7 +266,7 @@ class MainWindow(QMainWindow):
         self.resize(1280, 820)
         self.settings = QSettings("DataCurator", "DataCurator")
         self.profile_path: str | None = None
-        self.profile: dict = P.normalize({})
+        self.profile: dict = P.opening_profile()
         self.store = None
         self.thread = None
         self.worker = None
@@ -357,6 +357,8 @@ class MainWindow(QMainWindow):
         sb.addPermanentWidget(self.pause_btn)
         sb.addPermanentWidget(self.cancel_btn)
         self._menus()
+        self.sources.model().rowsInserted.connect(lambda *_: self._refresh_destinations())
+        self.sources.model().rowsRemoved.connect(lambda *_: self._refresh_destinations())
         last = self.settings.value("last_profile")
         if last and os.path.exists(str(last)):
             self._load_profile_file(str(last))
@@ -468,8 +470,8 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(28, 22, 28, 20)
         lay.setSpacing(10)
         lay.addWidget(T.BrandTitle("Sources and destinations", 20))
-        lay.addWidget(label("Choose the folders to organize, then where each kind of file should go. Leave a "
-                            "destination empty to organize inside the source folder without adding a wrapper folder.",
+        lay.addWidget(label("Choose your source folders. By default, each category goes into its own named folder "
+                            "inside each source. Browse to choose a different destination.",
                             "hint"))
         prof_row = QHBoxLayout()
         prof_row.addWidget(QLabel("Profile:"))
@@ -511,10 +513,16 @@ class MainWindow(QMainWindow):
         gl.addWidget(self.location_status)
         lay.addWidget(g)
 
+        self.opt_all_files = QCheckBox("Detect all files, including hidden files and files already in destination folders")
+        self.opt_all_files.setToolTip("Scans subfolders and mounted folders too. Explicit exclusions, links and app working files are reported separately. Protected game and application files are listed but left in place.")
+        self.opt_all_files.toggled.connect(self._rules_changed)
+        lay.addWidget(self.opt_all_files)
+
         g = QGroupBox("Destinations")
         grid = QGridLayout(g)
         self.dest_edits: dict[str, QLineEdit] = {}
         self.dest_info: dict[str, QLabel] = {}
+        self.dest_in_source: dict[str, QCheckBox] = {}
         for i, (cat, title) in enumerate(CATS):
             grid.addWidget(QLabel(title), i, 0)
             e = QLineEdit()
@@ -523,24 +531,32 @@ class MainWindow(QMainWindow):
             self.dest_edits[cat] = e
             e.textChanged.connect(lambda text, c=cat: self._destination_changed(c, text))
             grid.addWidget(e, i, 1)
+            inside = QCheckBox("Inside source")
+            inside.setAccessibleName(f"{title} inside each source")
+            self.dest_in_source[cat] = inside
+            inside.toggled.connect(lambda checked, c=cat: self._inside_source_changed(c, checked))
+            grid.addWidget(inside, i, 2)
             b = QPushButton("Browse…")
             b.setAccessibleName(f"Browse for {title} destination")
             b.clicked.connect(lambda _=False, c=cat: self.browse_dest(c))
-            grid.addWidget(b, i, 2)
+            grid.addWidget(b, i, 3)
             chk = QPushButton("Check")
             chk.setToolTip("Measure this destination: case sensitivity, Unicode, name rules, links, free space")
             chk.setAccessibleName(f"Check {title} destination")
             chk.clicked.connect(lambda _=False, c=cat: self.check_dest(c))
-            grid.addWidget(chk, i, 3)
+            grid.addWidget(chk, i, 4)
             info = label("", "hint")
             self.dest_info[cat] = info
-            grid.addWidget(info, i, 4)
+            grid.addWidget(info, i, 5)
             grid.setColumnStretch(1, 3)
-            grid.setColumnStretch(4, 2)
+            grid.setColumnStretch(5, 2)
         lay.addWidget(g)
         lay.addStretch(1)
         nav = QHBoxLayout()
         nav.addStretch(1)
+        category_defaults = QPushButton("Use category folders in sources")
+        category_defaults.clicked.connect(self.use_category_layout)
+        nav.addWidget(category_defaults)
         quick = QPushButton("Mixed files: subfolders inside sources")
         quick.setToolTip("Use format folders for music, videos, photos, documents and archives inside each source. Preview before applying.")
         quick.clicked.connect(self.use_mixed_layout)
@@ -665,7 +681,16 @@ class MainWindow(QMainWindow):
         self.addAction(sa)
         bar.addWidget(self.filter)
         bar.addWidget(self.search, 1)
+        self.scan_details_btn = QPushButton("Scan details…")
+        self.scan_details_btn.clicked.connect(self.show_scan_details)
+        self.scan_details_btn.hide()
+        self._scan_details = ""
+        bar.addWidget(self.scan_details_btn)
         lay.addLayout(bar)
+        self.scan_notice = label("", "hint")
+        self.scan_notice.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.scan_notice.hide()
+        lay.addWidget(self.scan_notice)
         split = QSplitter(Qt.Horizontal)
         self.table = QTableView()
         self.table.setAccessibleName("Proposed changes")
@@ -789,7 +814,12 @@ class MainWindow(QMainWindow):
             # Loading a saved profile must preserve intentional disabled categories.
             with QSignalBlocker(self.dest_edits[cat]):
                 self.dest_edits[cat].setText(cfg.get("root", ""))
+            with QSignalBlocker(self.dest_in_source[cat]):
+                self.dest_in_source[cat].setChecked(bool(cfg.get("source_subfolder")))
             self.editors[cat].load(cfg)
+        self._refresh_destinations()
+        self.opt_all_files.setChecked(prof["scan"].get("inventory_all", False))
+        self.filter.setCurrentIndex(self.filter.findData("all"))
         self.conflict.setCurrentIndex(max(0, self.conflict.findData(prof.get("conflict_policy"))))
         self.naming.setCurrentIndex(max(0, self.naming.findData(prof["naming"].get("preset"))))
         self.opt_refs.setChecked(prof["companions"].get("update_references", False))
@@ -815,7 +845,12 @@ class MainWindow(QMainWindow):
         p["sources"] = [self.sources.item(i).text() for i in range(self.sources.count())]
         for cat, _ in CATS:
             cfg = self.editors[cat].dump(p["categories"][cat])
-            cfg["root"] = self.dest_edits[cat].text().strip()
+            if self.dest_in_source[cat].isChecked():
+                cfg["root"] = ""
+                cfg["source_subfolder"] = cfg.get("source_subfolder") or P.CATEGORY_FOLDERS[cat]
+            else:
+                cfg["root"] = self.dest_edits[cat].text().strip()
+                cfg.pop("source_subfolder", None)
             cfg.pop("preset", None) if self.editors[cat].preset.currentData() == "custom" else None
             p["categories"][cat] = cfg
         p["conflict_policy"] = self.conflict.currentData()
@@ -826,7 +861,7 @@ class MainWindow(QMainWindow):
         p["preservation"]["block_lossy"] = self.opt_lossy.isChecked()
         p["cleanup_empty_dirs"] = self.opt_cleanup.isChecked()
         p["scan"].update(follow_symlinks=self.opt_symlinks.isChecked(), cross_mounts=self.opt_mounts.isChecked(),
-                         include_hidden=self.opt_hidden.isChecked())
+                         include_hidden=self.opt_hidden.isChecked(), inventory_all=self.opt_all_files.isChecked())
         p.setdefault("providers", {})["tv"] = self.provider.currentData()
         p["providers"]["movies"] = self.video_metadata.movies.currentData()
         p["extension_folders"] = self.extension_rules.dump()
@@ -842,9 +877,34 @@ class MainWindow(QMainWindow):
             self.summary.setText("Rules changed — run “Scan and preview” again before applying.")
 
     def _destination_changed(self, cat, text):
+        if self.dest_in_source[cat].isChecked():
+            with QSignalBlocker(self.dest_in_source[cat]):
+                self.dest_in_source[cat].setChecked(False)
+            self.dest_edits[cat].setReadOnly(False)
         if text.strip():
             self.editors[cat].enabled.setChecked(True)
         self._rules_changed()
+
+    def _refresh_destinations(self):
+        sources = [self.sources.item(i).text() for i in range(self.sources.count())]
+        for cat, edit in self.dest_edits.items():
+            inside = self.dest_in_source[cat].isChecked()
+            edit.setReadOnly(inside)
+            if inside:
+                folder = self.profile["categories"][cat].get("source_subfolder") or P.CATEGORY_FOLDERS[cat]
+                path = os.path.join(sources[0], folder) if len(sources) == 1 else f"Each source / {folder}"
+                with QSignalBlocker(edit):
+                    edit.setText(path)
+                edit.setToolTip("\n".join(os.path.join(source, folder) for source in sources) or "Choose a source folder first.")
+        self._rules_changed()
+
+    def _inside_source_changed(self, cat, checked):
+        if checked:
+            self.editors[cat].enabled.setChecked(True)
+        if not checked:
+            with QSignalBlocker(self.dest_edits[cat]):
+                self.dest_edits[cat].setText(self.profile["categories"][cat].get("root", ""))
+        self._refresh_destinations()
 
     # ================================================================== actions: sources
     def add_source(self):
@@ -865,7 +925,10 @@ class MainWindow(QMainWindow):
             self._destination_changed(cat, d)
 
     def check_dest(self, cat):
-        path = self.dest_edits[cat].text().strip() or (self.sources.item(0).text() if self.sources.count() else "")
+        if self.dest_in_source[cat].isChecked():
+            path = P.destination_root(self.current_profile()["categories"][cat], self.sources.item(0).text()) if self.sources.count() else ""
+        else:
+            path = self.dest_edits[cat].text().strip() or (self.sources.item(0).text() if self.sources.count() else "")
         if not path:
             self.dest_info[cat].setText("Choose a folder first.")
             return
@@ -970,6 +1033,7 @@ class MainWindow(QMainWindow):
             return
         sources = [self.sources.item(i).text() for i in range(self.sources.count())]
         prof = P.mixed_in_source_profile(sources)
+        prof["scan"]["inventory_all"] = self.opt_all_files.isChecked()
         # Preserve folders the user explicitly asked to protect.
         prof["scan"]["exclude_dirs"] = self.exclusions.dump()["exclude_dirs"]
         self.profile_path = None
@@ -977,6 +1041,12 @@ class MainWindow(QMainWindow):
         self.steps.setCurrentRow(1)
         self.cat_tabs.setCurrentWidget(self.extension_rules)
         self.status_text.setText("Mixed-file layout selected. Scan and preview before applying.")
+
+    def use_category_layout(self):
+        sources = [self.sources.item(i).text() for i in range(self.sources.count())]
+        self.profile_path = None
+        self._load_profile_into_ui(P.opening_profile(sources))
+        self.status_text.setText("Category folders selected inside each source. Scan and preview before applying.")
 
     def find_duplicates(self):
         try:
@@ -1050,6 +1120,7 @@ class MainWindow(QMainWindow):
         if self.thread is not None:
             return
         cfg = P.apply_preset(self.current_profile()["categories"]["music"], "music", key)
+        cfg.pop("source_subfolder", None)
         cfg.update(enabled=True, mode="move" if keep_names else "move_and_rename")
         if inside:
             cfg["root"] = ""
@@ -1060,12 +1131,17 @@ class MainWindow(QMainWindow):
             cfg["root"] = folder
         with QSignalBlocker(self.dest_edits["music"]):
             self.dest_edits["music"].setText(cfg["root"])
+        with QSignalBlocker(self.dest_in_source["music"]):
+            self.dest_in_source["music"].setChecked(False)
+        self.dest_edits["music"].setReadOnly(False)
         self.editors["music"].load(cfg)
         self.music_page.set_layout(cfg)
         self._rules_changed()
         self.status_text.setText("Music layout selected. Scan and preview to review the proposed folders.")
 
     def scan_and_preview(self):
+        self.scan_notice.hide()
+        self.scan_details_btn.hide()
         try:
             prof = P.normalize(self.current_profile())
         except CuratorError as e:
@@ -1115,11 +1191,33 @@ class MainWindow(QMainWindow):
         st = res.get("stats")
         if st:
             self.status_text.setText(f"Scanned {st.files:,} files ({st.extracted:,} read, {st.reused:,} from catalog). "
-                                     f"{len(st.excluded_folders):,} protected folders skipped. Nothing has been changed.")
-            self.status_text.setToolTip("\n".join(f"{p}: {r}" for p, r in st.excluded_folders[:100]))
-        if s["changes"] == 0 and s["review"]:
+                                     f"{len(st.errors):,} scan errors · {len(st.excluded_folders):,} excluded folders. Nothing has been changed.")
+            details = [*st.errors, *(f"{p}: {r}" for p, r in st.excluded_folders),
+                       *(f"{p}: mounted folder skipped" for p in st.skipped_mounts)]
+            if st.skipped_symlinks:
+                details.append(f"{st.skipped_symlinks:,} links skipped; linked targets may be outside the source.")
+            if st.errors and sys.platform == "darwin":
+                details.append("If a folder could not be read, allow Data Curator access in System Settings → Privacy & Security → Files and Folders, then scan again.")
+            self._scan_details = "\n".join(details)
+            self.status_text.setToolTip("\n".join(details[:100]))
+            self.scan_details_btn.setVisible(bool(details))
+            self.scan_notice.setVisible(bool(details) or st.files == 0)
+            if st.errors:
+                self.scan_notice.setText(f"Scan incomplete: {len(st.errors):,} error(s). Some files could not be read. Open Scan details for the affected folders.")
+            elif details:
+                self.scan_notice.setText("Some folders or links were excluded. Open Scan details to see what was left out.")
+            else:
+                self.scan_notice.setText("No files found in the selected sources. Check the folder paths and exclusions, then scan again.")
+        if s["changes"] == 0 and s["review"] and self.filter.currentData() != "all":
             self.filter.setCurrentIndex(self.filter.findData("review"))
         self._filter_changed()
+
+    def show_scan_details(self):
+        box = QMessageBox(self)
+        box.setWindowTitle("Scan details")
+        box.setText("Files and folders that could not be scanned")
+        box.setDetailedText(self._scan_details)
+        box.exec()
 
     def _filter_changed(self):
         self.model.set_filter(self.filter.currentData(), self.search.text().strip())

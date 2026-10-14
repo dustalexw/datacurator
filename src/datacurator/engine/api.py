@@ -41,20 +41,21 @@ class Engine:
     # ------------------------------------------------------------------- scan
     def scan_options(self, profile: dict) -> ScanOptions:
         s = profile.get("scan", {})
+        inventory_all = bool(s.get("inventory_all"))
         excl = [self.data_dir, *s.get("exclude_dirs", [])]
         # destination roots strictly inside a source root are output folders: never rescanned
         for c in profile["categories"].values():
             r = c.get("root")
-            if r:
+            if r and not inventory_all:
                 for src in profile["sources"]:
                     if r != src and r.startswith(src.rstrip(os.sep) + os.sep):
                         excl.append(r)
         q = (profile.get("dedupe") or {}).get("quarantine_dir")
         if q:
             excl.append(q)
-        return ScanOptions(follow_symlinks=bool(s.get("follow_symlinks")), cross_mounts=bool(s.get("cross_mounts")),
-                           include_hidden=bool(s.get("include_hidden")), exclude_dirs=excl,
-                           exclude_games=s.get("exclude_games", True))
+        return ScanOptions(follow_symlinks=bool(s.get("follow_symlinks")), cross_mounts=inventory_all or bool(s.get("cross_mounts")),
+                           include_hidden=inventory_all or bool(s.get("include_hidden")), exclude_dirs=excl,
+                           exclude_games=False if inventory_all else s.get("exclude_games", True))
 
     def scan(self, profile: dict, progress: Callable[[str, int], None] | None = None,
              cancel: threading.Event | None = None) -> ScanStats:

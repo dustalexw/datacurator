@@ -46,7 +46,9 @@ def test_workflow_preview_review_apply_undo(app, engine, lib, tmp_path, monkeypa
     w.dest_edits["tv"].setText(str(tmp_path / "TV"))
     w.scan_and_preview()
     pump(app, w)
-    assert w.store is not None and w.model.rowCount() == 2  # LP track + episode
+    assert w.store is not None and w.model.rowCount() == 5  # all detected files, including review rows
+    w.filter.setCurrentIndex(w.filter.findData("changes"))
+    assert w.model.rowCount() == 2  # LP track + episode
     assert "3 to review" in w.summary.text()
     assert not (tmp_path / "Music").exists()  # preview made no changes
     # template example updates immediately
@@ -253,7 +255,7 @@ def test_movie_lookup_review_choose_match(app, engine, lib, monkeypatch):
             return {"title": "Dune", "year": 2021, "plot": "Online plot"}
     monkeypatch.setattr("datacurator.metadata.providers.make_movie_provider", lambda *a: Provider())
     w = MainWindow(engine);w.sources.addItem(str(lib));w.scan_and_preview();pump(app, w)
-    assert w.model.rowCount() == 1 and w.filter.currentData() == "review"
+    assert w.model.rowCount() == 1 and w.filter.currentData() == "all"
     w.table.selectRow(0)
     assert "[tmdb:2]" in w.details.toPlainText()
     monkeypatch.setattr(QInputDialog, "getItem", staticmethod(lambda *a: (a[3][1], True)))
@@ -279,4 +281,69 @@ def test_one_click_mixed_layout_clears_destinations_preserves_exclusions(app, en
     assert p["scan"]["exclude_dirs"] == [str(lib / "Saved games")]
     assert p["providers"] == {"tv": "none", "movies": "none"}
     assert w.steps.currentRow() == 1 and w.cat_tabs.currentWidget() is w.extension_rules
+    w.close()
+
+
+def test_opening_category_destinations_follow_sources_and_preserve_custom_paths(app, engine, tmp_path):
+    from PySide6.QtCore import QSettings
+    from datacurator import profiles as P
+    from datacurator.gui.app import MainWindow
+    QSettings('DataCurator', 'DataCurator').remove('last_profile')
+    w = MainWindow(engine)
+    first, second = tmp_path / 'Downloads', tmp_path / 'Other source'
+    first.mkdir(); second.mkdir()
+    w.sources.addItem(str(first))
+    assert w.opt_all_files.isChecked() and w.filter.currentData() == 'all'
+    for cat, folder in P.CATEGORY_FOLDERS.items():
+        assert w.dest_in_source[cat].isChecked() and w.dest_edits[cat].isReadOnly()
+        assert w.dest_edits[cat].text() == str(first / folder)
+        assert w.current_profile()['categories'][cat]['enabled']
+    custom = str(tmp_path / 'My music')
+    w.dest_edits['music'].setText(custom)
+    assert not w.dest_in_source['music'].isChecked() and not w.dest_edits['music'].isReadOnly()
+    w.sources.addItem(str(second))
+    p = P.normalize(w.current_profile())
+    assert p['categories']['music']['root'] == custom
+    assert not p['categories']['music'].get('source_subfolder')
+    assert w.dest_edits['documents'].text() == 'Each source / Documents'
+    assert str(first / 'Documents') in w.dest_edits['documents'].toolTip()
+    w.sources.takeItem(0)
+    assert w.dest_edits['documents'].text() == str(second / 'Documents')
+    assert w.dest_edits['music'].text() == custom
+    saved = tmp_path / 'categories.json'; P.save(w.current_profile(), str(saved))
+    w._load_profile_into_ui(P.load(str(saved)))
+    assert w.dest_edits['documents'].text() == str(second / 'Documents')
+    legacy = P.normalize({'sources': [str(first)], 'categories': {'documents': {'enabled': False, 'root': custom}}})
+    w._load_profile_into_ui(legacy)
+    assert not w.editors['documents'].enabled.isChecked() and w.dest_edits['documents'].text() == custom
+    assert not w.dest_in_source['documents'].isChecked()
+    w.use_category_layout()
+    assert all(w.current_profile()['categories'][cat]['enabled'] for cat in P.CATEGORY_FOLDERS)
+    assert w.dest_edits['documents'].text() == str(first / 'Documents') and w.opt_all_files.isChecked()
+    w.close()
+
+
+def test_all_file_preview_reports_permission_errors_and_lists_unknown_and_hidden_files(app, engine, lib, monkeypatch):
+    import errno
+    from PySide6.QtCore import QSettings
+    from datacurator.gui.app import MainWindow
+    from datacurator.engine import scanner
+    QSettings('DataCurator', 'DataCurator').remove('last_profile')
+    for name in ('.hidden', 'unknown', 'nested/archive.zip', 'Documents/organized.pdf', 'Blocked/a.pdf'):
+        make_file(str(lib / name))
+    real = scanner.os.scandir
+    def denied(path):
+        if str(path) == str(lib / 'Blocked'):
+            raise PermissionError(errno.EACCES, 'Permission denied', path)
+        return real(path)
+    monkeypatch.setattr(scanner.os, 'scandir', denied)
+    w = MainWindow(engine); w.sources.addItem(str(lib)); w.scan_and_preview(); pump(app, w)
+    assert w.model.rowCount() == 4 and w.filter.currentData() == 'all'
+    assert not w.scan_notice.isHidden() and 'Scan incomplete' in w.scan_notice.text()
+    assert not w.scan_details_btn.isHidden() and 'Blocked' in w._scan_details
+    assert '1 scan errors' in w.status_text.text()
+    assert not (lib / 'Other files').exists()
+    monkeypatch.setattr(scanner.os, 'scandir', real)
+    w.scan_and_preview(); pump(app, w)
+    assert w.model.rowCount() == 5 and w.scan_notice.isHidden() and w.scan_details_btn.isHidden()
     w.close()

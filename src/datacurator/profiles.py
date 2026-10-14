@@ -70,6 +70,14 @@ DEFAULT_PRESET = {"music": "album_artist/album", "tv": "series/season", "movies"
 
 MODES = ("move_and_rename", "move", "rename")
 CONFLICT_POLICIES = ("review", "skip", "alternate")
+CATEGORY_FOLDERS = {"music": "Music", "tv": "TV", "movies": "Movies",
+                    "documents": "Documents", "photos": "Photos", "other": "Other files"}
+
+
+def destination_root(cfg: dict, source: str) -> str:
+    if cfg.get("root"):
+        return cfg["root"]
+    return os.path.join(source, cfg["source_subfolder"]) if cfg.get("source_subfolder") else source
 
 
 def _category_defaults(cat: str) -> dict[str, Any]:
@@ -187,6 +195,13 @@ def normalize(profile: dict) -> dict:
                 problems.append(f"{cat} {kind} template: {err}")
         if cfg.get("root"):
             cfg["root"] = os.path.abspath(os.path.expanduser(cfg["root"]))
+        if folder := cfg.get("source_subfolder"):
+            folder = str(folder).replace("\\", "/")
+            if folder.startswith("/") or ":" in folder or any(part in ("", ".", "..") for part in folder.split("/")) or any(c in folder for c in "{}"):
+                problems.append(f"{cat}: source_subfolder must be a relative folder such as {CATEGORY_FOLDERS[cat]}.")
+            if cfg.get("root"):
+                problems.append(f"{cat}: choose a destination root or a source subfolder, not both.")
+            cfg["source_subfolder"] = folder
     if prof.get("conflict_policy") not in CONFLICT_POLICIES:
         problems.append(f"conflict_policy must be one of {', '.join(CONFLICT_POLICIES)}")
     if prof["categories"]["tv"].get("numbering") not in ("auto", "absolute"):
@@ -232,3 +247,11 @@ def mixed_in_source_profile(sources=()):
     return normalize({"name": "Mixed files inside each source", "sources": list(sources),
         "categories": {"photos": {"enabled": True}, "documents": {"enabled": True}},
         "extension_folders": {"enabled": True, "folders": folders}})
+
+
+def opening_profile(sources=()):
+    """New desktop setup; saved profiles retain their explicit layout and exclusions."""
+    return normalize({"name": "Category folders inside sources", "sources": list(sources),
+        "categories": {cat: {"enabled": True, "source_subfolder": folder}
+                       for cat, folder in CATEGORY_FOLDERS.items()},
+        "scan": {"inventory_all": True, "include_hidden": True}})
