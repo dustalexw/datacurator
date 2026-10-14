@@ -347,3 +347,25 @@ def test_all_file_preview_reports_permission_errors_and_lists_unknown_and_hidden
     w.scan_and_preview(); pump(app, w)
     assert w.model.rowCount() == 5 and w.scan_notice.isHidden() and w.scan_details_btn.isHidden()
     w.close()
+
+
+def test_title_bar_chrome_skips_non_cocoa_platforms(app, monkeypatch):
+    """The packaged-app smoke test runs with QT_QPA_PLATFORM=offscreen on macOS.
+    There is no NSView behind winId() then, so the AppKit calls must not run."""
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QMainWindow
+    from datacurator.gui import macchrome
+
+    monkeypatch.setattr(macchrome, "_objc", object())   # as if libobjc loaded
+
+    def boom(*args, **kwargs):
+        raise AssertionError("AppKit messaged on a non-Cocoa platform")
+
+    monkeypatch.setattr(macchrome, "_send", boom)
+    w = QMainWindow()
+    flags = w.windowFlags()
+    assert not macchrome.available()
+    macchrome.prepare(w)
+    assert w.windowFlags() == flags
+    assert macchrome.integrate(w, QColor("#260F18")) is False
+    w.close()
