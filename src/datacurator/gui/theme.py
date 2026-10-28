@@ -286,7 +286,7 @@ BADGES = {"move": ("Move", ACCENT), "none": ("No change", MUTED), "review": ("Re
     "skip": ("Leave", MUTED), "rewrite": ("Update refs", INFO), "write_tags": ("Write tags", INFO),
     "quarantine": ("Quarantine", QUARANTINE)}
 FLAG_BADGES = {"conflict": ("conflict", ERROR), "duplicate": ("duplicate", DUPLICATE), "error": ("error", ERROR),
-    "uncertain": ("uncertain", WARNING), "limitation": ("preservation", QUARANTINE), "excluded": ("excluded", MUTED)}
+    "uncertain": ("uncertain", WARNING), "limitation": ("preservation", QUARANTINE), "excluded": ("left alone", MUTED)}
 
 
 class ActionDelegate(QStyledItemDelegate):

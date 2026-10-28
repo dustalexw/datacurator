@@ -58,7 +58,7 @@ what the destination itself requires.
 
 **Photos** — `year`, `month`, `day` (EXIF capture date), `camera_make`, `camera_model`, `name`, `ext`
 
-**Other** — `name`, `type` (extension in capitals), `original_name`, `ext`
+**Other** — `name`, `type` (extension in capitals), `group` (kind of file: `Archives`, `Installers`, `Disk images`, `Code`, `Data`, `Fonts`, `Design and 3D`, `Web pages`, `eBooks`, `Text`, `Torrents`, `Shortcuts`, `Certificates and keys`, `Subtitles`, `Playlists`, else `Miscellaneous`), `project` (the top-level folder the file came from), `subpath`, `original_name`, `ext`
 
 ## Presets
 
@@ -75,6 +75,8 @@ what the destination itself requires.
 | Documents | `project` | `Project/Filename.pdf` |
 | Photos | `year/year-month` | `2024/2024-07/IMG_0412.jpg` |
 | Other | `flat` | `Filename.ext` |
+| Other | `group/project` (new setups) | `Archives/Original folder/Filename.ext` |
+| Other | `group` | `Archives/Filename.ext` |
 
 Each category also has a **mode**: *sort into folders and rename* (both templates), *sort only*
 (folder template, original filename), or *rename in place* (filename template, folder unchanged).
@@ -92,6 +94,10 @@ Each category also has a **mode**: *sort into folders and rename* (both template
 
 If a companion cannot move (for example its name collides), its video is held back too, so they
 never get separated.
+
+Files that only work together are kept together: multi-part archives, disc images with their
+tracks, shapefiles and photo `.xmp`/`.aae` sidecars follow their lead file into its folder (a sidecar
+also takes its photo's new name). If any part cannot move, the whole set stays for review.
 
 ## Examples
 

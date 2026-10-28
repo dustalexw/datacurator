@@ -12,7 +12,7 @@ from ..engine.planstore import PlanStore
 ACTION_LABEL = {"move": "Move", "none": "No change", "review": "Review", "skip": "Leave", "rewrite": "Update refs",
                 "write_tags": "Write tags", "quarantine": "Quarantine"}
 FLAG_LABEL = {"conflict": "conflict", "uncertain": "uncertain", "duplicate": "duplicate", "error": "error",
-              "sanitized": "name adjusted", "limitation": "preservation note", "excluded": "excluded"}
+              "sanitized": "name adjusted", "limitation": "preservation note", "excluded": "left alone"}
 
 CATEGORY_LABEL = {"music": "Music", "tv": "TV", "movies": "Movie", "documents": "Document", "photos": "Photo",
                   "other": "Other"}

@@ -21,15 +21,18 @@ def test_downloads_inventory_includes_hidden_unknown_existing_destinations_and_g
     before = {path: Path(path).read_bytes() for path in paths}
     profile = P.opening_profile([str(source)])
     stats = engine.scan(profile)
-    assert stats.files == len(paths) and not stats.errors and not stats.excluded_folders
+    bundle = str(source / 'App.app/Contents/data.bin')
+    # Bundles are reported as protected without listing their insides; everything else is inventoried.
+    assert stats.files == len(paths) - 1 and not stats.errors
+    assert stats.excluded_folders == [(str(source / 'App.app'), 'Application bundle')]
     store = engine.plan(profile)
-    assert {item.source for item in store.items()} == set(paths)
+    assert {item.source for item in store.items()} == set(paths) - {bundle}
     roots = dict(zip(paths[:5], ('Music', 'Photos', 'Documents', 'Movies', 'TV')))
     for path, folder in roots.items():
         assert store.by_source(path).dest.startswith(str(source / folder) + os.sep)
-    assert store.by_source(str(source / 'archive.zip')).dest == str(source / 'Other files/archive.zip')
+    assert store.by_source(str(source / 'archive.zip')).dest == str(source / 'Other files/Archives/archive.zip')
     assert store.by_source(str(source / 'Documents/organized.pdf')).action == 'none'
-    for name in ('steamapps/common/Game/manual.pdf', 'App.app/Contents/data.bin'):
+    for name in ('steamapps/common/Game/manual.pdf', '.hidden-folder/notes.xyz'):
         item = store.by_source(str(source / name))
         assert item.action == 'skip' and 'excluded' in item.flags
     assert all(Path(path).read_bytes() == content for path, content in before.items())

@@ -55,7 +55,8 @@ class Engine:
             excl.append(q)
         return ScanOptions(follow_symlinks=bool(s.get("follow_symlinks")), cross_mounts=inventory_all or bool(s.get("cross_mounts")),
                            include_hidden=inventory_all or bool(s.get("include_hidden")), exclude_dirs=excl,
-                           exclude_games=False if inventory_all else s.get("exclude_games", True))
+                           exclude_games=s.get("exclude_games", True), allow_dirs=list(s.get("allow_dirs", [])),
+                           inventory_all=inventory_all, managed_dirs=profiles_mod.managed_roots(profile))
 
     def scan(self, profile: dict, progress: Callable[[str, int], None] | None = None,
              cancel: threading.Event | None = None) -> ScanStats:

@@ -26,7 +26,7 @@ def plan_dedupe(catalog: Catalog, sources: list[str], quarantine_dir: str, plans
     for source in sources:
         if is_within_real(source, quarantine_dir):
             raise ValueError("The quarantine folder cannot be a source folder or contain a source folder.")
-    exclusions = DirectoryExclusions((profile or {}).get("scan"))
+    exclusions = DirectoryExclusions((profile or {}).get("scan"), roots=sources)
     excluded_files = catalog.exclusions()
     store = PlanStore.new(plans_dir)
     store.set_header("kind", "dedupe")

@@ -17,6 +17,16 @@ either not implemented or implemented but not verified in this release.
   workflow is keyboard-operable, but no formal accessibility audit was done.
 * Standalone builds: Linux (smoke-tested here) and macOS arm64/x86_64 (built and smoke-tested by `.github/workflows/macos.yml`). macOS builds are ad-hoc signed, not notarized; no Windows build yet.
 
+## Dependent-folder detection
+
+* Protection is based on recognizable markers (file and folder names, bundle suffixes). A folder whose
+  files are referenced by an app that leaves no marker nearby — for example photos referenced by a
+  Lightroom catalog stored elsewhere, or media linked from a project file in another folder — is not
+  detected. Add such folders under **Rules → Exclusions**.
+* With **Detect all files** on, app bundles, repository data and dependency folders (`.git`,
+  `node_modules`, `.photoslibrary` …) are reported in Scan details but their contents are not listed
+  file by file; other protected folders are listed and left in place.
+
 ## Not implemented
 
 * **Live filesystem watching.** There is no watcher; re-scanning is incremental and fast

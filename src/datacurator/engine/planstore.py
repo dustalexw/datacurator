@@ -27,6 +27,7 @@ FILTERS = {
     "sanitized": "flags LIKE '%sanitized%'",
     "limitations": "flags LIKE '%limitation%'",
     "skipped": "action='skip'",
+    "protected": "flags LIKE '%excluded%'",
 }
 
 

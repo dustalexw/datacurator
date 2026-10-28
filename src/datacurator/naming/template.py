@@ -37,7 +37,7 @@ MOVIE_TOKENS = {"title", "year", "edition", "resolution", "source", "codec", "ex
 DOCUMENT_TOKENS = {"project", "subpath", "name", "year", "ext", "extension", "original_name"}
 PHOTO_TOKENS = {"year", "month", "day", "camera_make", "camera_model", "name", "ext",
                 "extension", "original_name"}
-OTHER_TOKENS = {"name", "ext", "extension", "original_name", "type"}
+OTHER_TOKENS = {"name", "ext", "extension", "original_name", "type", "group", "project", "subpath"}
 
 TOKENS_BY_CATEGORY = {
     "music": MUSIC_TOKENS, "tv": TV_TOKENS, "movies": MOVIE_TOKENS,

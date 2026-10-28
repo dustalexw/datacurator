@@ -35,7 +35,7 @@ from . import theme as T
 from .models import PlanTableModel, build_tree
 from .about import AboutDialog
 from .music import MusicPage
-from .organization import ExtensionFolders, Exclusions, VideoMetadata, DuplicatePage
+from .organization import ExtensionFolders, Exclusions, ScanDetailsDialog, VideoMetadata, DuplicatePage
 
 CATS = [("music", "Music"), ("tv", "TV"), ("movies", "Movies"), ("documents", "Documents"), ("photos", "Photos"),
         ("other", "Other files")]
@@ -44,7 +44,7 @@ MODES = [("move_and_rename", "Sort into folders and rename"), ("move", "Sort int
 FILTERS = [("changes", "Proposed changes"), ("review", "Review queue"), ("conflicts", "Conflicts"),
            ("uncertain", "Uncertain matches"), ("duplicates", "Duplicates"), ("errors", "Errors"),
            ("sanitized", "Name adjustments"), ("limitations", "Preservation notes"), ("unchanged", "Already organized"),
-           ("skipped", "Left in place"), ("all", "Everything")]
+           ("protected", "Protected (stays in place)"), ("skipped", "Left in place"), ("all", "Everything")]
 SAMPLE = {
     "music": {"album_artist": "Daft Punk", "artist": "Daft Punk feat. Pharrell Williams", "album": "Random Access Memories",
               "year": 2013, "track": 8, "title": "Get Lucky", "format": "FLAC", "genre": "Electronic"},
@@ -53,9 +53,9 @@ SAMPLE = {
     "movies": {"title": "Arrival", "year": 2016, "resolution": "2160p"},
     "documents": {"project": "Taxes 2025", "name": "receipt-0412"},
     "photos": {"year": 2024, "month": 7, "day": 4, "name": "IMG_0412", "camera_make": "Canon"},
-    "other": {"name": "notes", "type": "TXT"},
+    "other": {"name": "setup", "type": "DMG", "group": "Installers", "project": "New app"},
 }
-SAMPLE_EXT = {"music": ".flac", "tv": ".mkv", "movies": ".mkv", "documents": ".pdf", "photos": ".jpg", "other": ".txt"}
+SAMPLE_EXT = {"music": ".flac", "tv": ".mkv", "movies": ".mkv", "documents": ".pdf", "photos": ".jpg", "other": ".dmg"}
 
 STYLE = """
 QWidget { font-size: 10pt; }
@@ -1034,8 +1034,8 @@ class MainWindow(QMainWindow):
         sources = [self.sources.item(i).text() for i in range(self.sources.count())]
         prof = P.mixed_in_source_profile(sources)
         prof["scan"]["inventory_all"] = self.opt_all_files.isChecked()
-        # Preserve folders the user explicitly asked to protect.
-        prof["scan"]["exclude_dirs"] = self.exclusions.dump()["exclude_dirs"]
+        # Preserve folders the user explicitly asked to protect (or to organize anyway).
+        prof["scan"].update(self.exclusions.dump())
         self.profile_path = None
         self._load_profile_into_ui(prof)
         self.steps.setCurrentRow(1)
@@ -1045,7 +1045,9 @@ class MainWindow(QMainWindow):
     def use_category_layout(self):
         sources = [self.sources.item(i).text() for i in range(self.sources.count())]
         self.profile_path = None
-        self._load_profile_into_ui(P.opening_profile(sources))
+        prof = P.opening_profile(sources)
+        prof["scan"].update(self.exclusions.dump())
+        self._load_profile_into_ui(prof)
         self.status_text.setText("Category folders selected inside each source. Scan and preview before applying.")
 
     def find_duplicates(self):
@@ -1190,20 +1192,26 @@ class MainWindow(QMainWindow):
         self.apply_btn.setEnabled(s["changes"] > 0)
         st = res.get("stats")
         if st:
+            self._protected = self._protected_folders(st)
             self.status_text.setText(f"Scanned {st.files:,} files ({st.extracted:,} read, {st.reused:,} from catalog). "
-                                     f"{len(st.errors):,} scan errors · {len(st.excluded_folders):,} excluded folders. Nothing has been changed.")
-            details = [*st.errors, *(f"{p}: {r}" for p, r in st.excluded_folders),
-                       *(f"{p}: mounted folder skipped" for p in st.skipped_mounts)]
+                                     f"{len(st.errors):,} scan errors · {len(self._protected):,} protected folders. Nothing has been changed.")
+            self._other_details = [*st.errors, *(f"{p}: mounted folder skipped" for p in st.skipped_mounts)]
+            details = [*self._other_details, *(f"{p}: {r}" for p, r in self._protected)]
             if st.skipped_symlinks:
-                details.append(f"{st.skipped_symlinks:,} links skipped; linked targets may be outside the source.")
+                self._other_details.append(f"{st.skipped_symlinks:,} links skipped; linked targets may be outside the source.")
             if st.errors and sys.platform == "darwin":
-                details.append("If a folder could not be read, allow Data Curator access in System Settings → Privacy & Security → Files and Folders, then scan again.")
+                self._other_details.append("If a folder could not be read, allow Data Curator access in System Settings → Privacy & Security → Files and Folders, then scan again.")
+            details = [*self._other_details, *(f"{p}: {r}" for p, r in self._protected)]
             self._scan_details = "\n".join(details)
             self.status_text.setToolTip("\n".join(details[:100]))
             self.scan_details_btn.setVisible(bool(details))
             self.scan_notice.setVisible(bool(details) or st.files == 0)
             if st.errors:
                 self.scan_notice.setText(f"Scan incomplete: {len(st.errors):,} error(s). Some files could not be read. Open Scan details for the affected folders.")
+            elif self._protected:
+                self.scan_notice.setText(
+                    f"{len(self._protected):,} protected folder(s) stay exactly as they are — apps, projects, libraries "
+                    "or games whose files depend on their location. Open Scan details to review them or organize one anyway.")
             elif details:
                 self.scan_notice.setText("Some folders or links were excluded. Open Scan details to see what was left out.")
             else:
@@ -1212,12 +1220,29 @@ class MainWindow(QMainWindow):
             self.filter.setCurrentIndex(self.filter.findData("review"))
         self._filter_changed()
 
+    def _protected_folders(self, st):
+        """Protected folders from the scan plus those the plan left in place, outermost first, de-duplicated."""
+        found = dict(st.excluded_folders)
+        if self.store is not None:
+            from ..engine.exclusions import DirectoryExclusions
+            prof = self.profile or {}
+            ex = DirectoryExclusions(prof.get("scan"), roots=prof.get("sources", []), managed=P.managed_roots(prof))
+            seen = set()
+            for row in self.store.rows("SELECT DISTINCT source FROM items WHERE flags LIKE '%excluded%' AND action='skip'"):
+                d = os.path.dirname(row[0])
+                if d in seen:
+                    continue
+                seen.add(d)
+                if hit := ex.protected_root(d):
+                    found.setdefault(hit[0], hit[1])
+        out = sorted(found.items())
+        return [(p, r) for p, r in out if not any(p != q and p.startswith(q.rstrip(os.sep) + os.sep) for q, _ in out)]
+
     def show_scan_details(self):
-        box = QMessageBox(self)
-        box.setWindowTitle("Scan details")
-        box.setText("Files and folders that could not be scanned")
-        box.setDetailedText(self._scan_details)
-        box.exec()
+        dlg = ScanDetailsDialog(self, getattr(self, "_protected", []), getattr(self, "_other_details", []))
+        if dlg.exec() and dlg.chosen and self.exclusions.allow(dlg.chosen):
+            self.status_text.setText(f"{len(dlg.chosen):,} folder(s) will be organized anyway. Scanning again…")
+            self.scan_and_preview()
 
     def _filter_changed(self):
         self.model.set_filter(self.filter.currentData(), self.search.text().strip())
@@ -1323,6 +1348,7 @@ class MainWindow(QMainWindow):
                f"• {s['folders_to_create']:,} folders will be created\n"
                f"• {fmt_bytes(s['bytes_to_copy'])} will be copied between drives, verified, then the originals removed\n"
                f"• {s['review']:,} files stay in place for review\n"
+               f"• {s.get('protected', 0):,} protected files (projects, libraries, apps, file sets) are not touched\n"
                f"• Existing files are never overwritten\n")
         if lim:
             msg += f"• {lim:,} transfers cannot keep every attribute (see “Preservation notes”)\n"
@@ -1409,6 +1435,8 @@ class MainWindow(QMainWindow):
         self.refresh_history()
 
     def _check_interrupted(self, force=False):
+        if self.thread is not None:
+            return  # a run in progress is not an interrupted one
         pending = self.engine.journal.unfinished()
         if not pending:
             if force:
