@@ -608,10 +608,11 @@ class MainWindow(QMainWindow):
         f.addRow("File names", self.naming)
         lay.addWidget(g)
 
-        self.adv = QGroupBox("Advanced")
-        self.adv.setCheckable(True)
-        self.adv.setChecked(False)
-        al = QGridLayout(self.adv)
+        # A plain checkbox opens the options panel; closed, nothing but the checkbox shows.
+        self.adv = QCheckBox("Advanced")
+        self.adv.setAccessibleName("Show advanced options")
+        self.adv_panel = QGroupBox()
+        al = QGridLayout(self.adv_panel)
         self.opt_refs = QCheckBox("Update references in cue sheets and playlists (originals kept for undo)")
         self.opt_tags = QCheckBox("Write my overrides into embedded tags (originals kept for undo)")
         self.opt_dupes = QCheckBox("Detect identical copies by content")
@@ -625,11 +626,10 @@ class MainWindow(QMainWindow):
         for i, c in enumerate(opts):
             al.addWidget(c, i // 2, i % 2)
             c.toggled.connect(lambda *_: self._rules_changed())
-        hidden = opts
-        self.adv.toggled.connect(lambda on: [c.setVisible(on) for c in hidden])
-        for c in hidden:
-            c.setVisible(False)
+        self.adv.toggled.connect(self._set_advanced_open)
+        self._set_advanced_open(False)
         lay.addWidget(self.adv)
+        lay.addWidget(self.adv_panel)
         nav = QHBoxLayout()
         back = QPushButton("← Back")
         back.clicked.connect(lambda: self.steps.setCurrentRow(0))
@@ -642,6 +642,10 @@ class MainWindow(QMainWindow):
         nav.addWidget(self.scan_btn)
         lay.addLayout(nav)
         return w
+
+    def _set_advanced_open(self, on: bool):
+        """Closed, the Advanced options panel is hidden entirely (no empty frame)."""
+        self.adv_panel.setVisible(on)
 
     # ------------------------------------------------------------------ page 3
     def _page_review(self) -> QWidget:
