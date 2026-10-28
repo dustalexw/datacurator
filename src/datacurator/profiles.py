@@ -62,6 +62,9 @@ PRESETS: dict[str, dict[str, dict[str, str]]] = {
     },
     "other": {
         "flat": {"folder": "", "filename": "{name}", "label": "Filename"},
+        "group/project": {"folder": "{group}/[{project}]", "filename": "{name}",
+                          "label": "Kind / Original folder / Filename (Archives, Installers, Code …)"},
+        "group": {"folder": "{group}", "filename": "{name}", "label": "Kind / Filename (Archives, Installers, Code …)"},
     },
 }
 
@@ -78,6 +81,18 @@ def destination_root(cfg: dict, source: str) -> str:
     if cfg.get("root"):
         return cfg["root"]
     return os.path.join(source, cfg["source_subfolder"]) if cfg.get("source_subfolder") else source
+
+
+def managed_roots(profile: dict) -> list[str]:
+    """Category destination folders inside the sources (files Data Curator itself sorted)."""
+    out = set()
+    for source in profile.get("sources", []):
+        for cfg in (profile.get("categories") or {}).values():
+            if cfg.get("enabled") or cfg.get("source_subfolder") or cfg.get("root"):
+                root = destination_root(cfg, source)
+                if root != source:
+                    out.add(root)
+    return sorted(out)
 
 
 def _category_defaults(cat: str) -> dict[str, Any]:
@@ -109,7 +124,7 @@ DEFAULT_PROFILE: dict[str, Any] = {
     "preservation": {"block_lossy": False},
     "cleanup_empty_dirs": False,
     "scan": {"follow_symlinks": False, "cross_mounts": False, "include_hidden": False,
-             "exclude_games": True, "exclude_dirs": []},
+             "exclude_games": True, "exclude_dirs": [], "allow_dirs": []},
     "extension_folders": {"enabled": False, "folders": {
         ".pdf": "PDF", ".doc": "Word", ".docx": "Word", ".odt": "Word",
         ".xls": "Spreadsheets", ".xlsx": "Spreadsheets", ".csv": "Spreadsheets",
@@ -172,6 +187,11 @@ def normalize(profile: dict) -> dict:
         problems.append("Excluded folders must be a list of folder paths.")
     else:
         prof["scan"]["exclude_dirs"] = [os.path.abspath(os.path.expanduser(str(p))) for p in excluded if str(p).strip()]
+    allowed = prof["scan"].get("allow_dirs", [])
+    if not isinstance(allowed, list):
+        problems.append("Folders to organize anyway must be a list of folder paths.")
+    else:
+        prof["scan"]["allow_dirs"] = [os.path.abspath(os.path.expanduser(str(p))) for p in allowed if str(p).strip()]
     for field in ("quarantine_dir", "prefer_root"):
         if prof["dedupe"].get(field):
             prof["dedupe"][field] = os.path.abspath(os.path.expanduser(prof["dedupe"][field]))
@@ -251,7 +271,9 @@ def mixed_in_source_profile(sources=()):
 
 def opening_profile(sources=()):
     """New desktop setup; saved profiles retain their explicit layout and exclusions."""
+    categories = {cat: {"enabled": True, "source_subfolder": folder} for cat, folder in CATEGORY_FOLDERS.items()}
+    # Other files are grouped by kind (Archives, Installers, Code …) and keep their original folder name.
+    categories["other"]["preset"] = "group/project"
     return normalize({"name": "Category folders inside sources", "sources": list(sources),
-        "categories": {cat: {"enabled": True, "source_subfolder": folder}
-                       for cat, folder in CATEGORY_FOLDERS.items()},
+        "categories": categories, "cleanup_empty_dirs": True,
         "scan": {"inventory_all": True, "include_hidden": True}})

@@ -87,6 +87,11 @@ def cmd_scan(a):
         print(f"  symlink loops skipped: {len(st.cycles)}")
     if st.skipped_mounts:
         print(f"  other filesystems not entered (enable cross_mounts to include): {len(st.skipped_mounts)}")
+    if st.excluded_folders:
+        print(f"  protected folders left exactly as they are: {len(st.excluded_folders)}"
+              " (add a path to scan.allow_dirs in the profile to organize it anyway)")
+        for path, why in st.excluded_folders[:20]:
+            print(f"    - {path}: {why}")
     return 0
 
 

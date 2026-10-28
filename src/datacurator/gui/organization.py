@@ -4,9 +4,9 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt, QSignalBlocker
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout,
-    QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QMessageBox,
-    QPushButton, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
+    QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QMessageBox,
+    QPlainTextEdit, QPushButton, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ..engine.executor import fmt_bytes
 from ..models import CuratorError
@@ -90,21 +90,19 @@ class ExtensionFolders(QWidget):
         return {"enabled": self.enabled.isChecked(), "folders": folders}
 
 
-class Exclusions(QWidget):
-    def __init__(self, changed):
+class _FolderList(QWidget):
+    """A titled, multi-select list of folders with Add/Remove buttons."""
+
+    def __init__(self, title, accessible, dialog_title, changed):
         super().__init__()
-        self.changed = changed
+        self.changed, self.dialog_title = changed, dialog_title
         lay = QVBoxLayout(self)
-        self.games = QCheckBox("Protect installed game folders and application bundles")
-        lay.addWidget(self.games)
-        lay.addWidget(hint("Skips Steam, Epic, GOG, Xbox and other launcher libraries, plus folders with "
-            "common Unity/Unreal game markers. Add any other game or save-data folders below. "
-            "Protected folders are skipped during organization and duplicate searches."))
-        lay.addWidget(QLabel("Folders to leave alone"))
-        self.folders = QListWidget()
-        self.folders.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.folders.setAccessibleName("Excluded folders")
-        lay.addWidget(self.folders, 1)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(QLabel(title))
+        self.list = QListWidget()
+        self.list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.list.setAccessibleName(accessible)
+        lay.addWidget(self.list, 1)
         bar = QHBoxLayout()
         for text, fn in (("Add folder…", self.add_folder), ("Remove selected", self.remove_folders)):
             b = QPushButton(text)
@@ -112,28 +110,169 @@ class Exclusions(QWidget):
             bar.addWidget(b)
         bar.addStretch()
         lay.addLayout(bar)
-        self.games.toggled.connect(changed)
+
+    def add(self, folder):
+        if folder and not self.list.findItems(folder, Qt.MatchExactly):
+            self.list.addItem(folder)
+            return True
+        return False
 
     def add_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Leave this folder and its contents alone")
-        if folder and not self.folders.findItems(folder, Qt.MatchExactly):
-            self.folders.addItem(folder)
+        if self.add(QFileDialog.getExistingDirectory(self, self.dialog_title)):
             self.changed()
 
     def remove_folders(self):
-        for item in self.folders.selectedItems():
-            self.folders.takeItem(self.folders.row(item))
+        for item in self.list.selectedItems():
+            self.list.takeItem(self.list.row(item))
         self.changed()
+
+    def remove(self, folder):
+        for item in self.list.findItems(folder, Qt.MatchExactly):
+            self.list.takeItem(self.list.row(item))
+
+    def set(self, folders):
+        self.list.clear()
+        self.list.addItems(folders)
+
+    def values(self):
+        return [self.list.item(i).text() for i in range(self.list.count())]
+
+    def addItem(self, folder):  # QListWidget-style convenience
+        self.add(folder)
+
+    def count(self):
+        return self.list.count()
+
+
+class Exclusions(QWidget):
+    def __init__(self, changed):
+        super().__init__()
+        self.changed = changed
+        lay = QVBoxLayout(self)
+        self.games = QCheckBox("Protect folders whose files depend on staying where they are (recommended)")
+        self.games.setAccessibleName("Protect dependent folders")
+        lay.addWidget(self.games)
+        lay.addWidget(hint(
+            "Data Curator never moves files out of: apps and bundles (.app, Photos and Music libraries, "
+            "Final Cut and Logic projects), software projects (Git, package.json, Xcode …), creative projects "
+            "(Ableton, Premiere, Pro Tools, InDesign …), installed games, virtual machines, DVD/Blu-ray folders, "
+            "device backups, saved web pages and hidden settings folders. A source folder itself is only "
+            "protected by unmistakable signs such as a Git repository, so a stray file never freezes your "
+            "Downloads. Protected folders are listed in Scan details after each scan."))
+        self.folders = _FolderList("Folders to leave alone", "Excluded folders",
+                                   "Leave this folder and its contents alone", changed)
+        lay.addWidget(self.folders, 1)
+        self.allowed = _FolderList("Organize anyway (lifts automatic protection; app bundles and repository data "
+                                   "inside stay protected)", "Folders to organize anyway",
+                                   "Organize this protected folder anyway", changed)
+        lay.addWidget(self.allowed, 1)
+        self.games.toggled.connect(changed)
+
+    # compatibility with earlier callers
+    def add_folder(self):
+        self.folders.add_folder()
+
+    def remove_folders(self):
+        self.folders.remove_folders()
+
+    def allow(self, folders):
+        """Organize these protected folders anyway; returns True if anything changed."""
+        added = [f for f in folders if self.allowed.add(f)]
+        for f in added:
+            self.folders.remove(f)
+        if added:
+            self.changed()
+        return bool(added)
 
     def load(self, cfg):
         with QSignalBlocker(self.games):
             self.games.setChecked(cfg.get("exclude_games", True))
-        self.folders.clear()
-        self.folders.addItems(cfg.get("exclude_dirs", []))
+        self.folders.set(cfg.get("exclude_dirs", []))
+        self.allowed.set(cfg.get("allow_dirs", []))
 
     def dump(self):
-        return {"exclude_games": self.games.isChecked(),
-                "exclude_dirs": [self.folders.item(i).text() for i in range(self.folders.count())]}
+        return {"exclude_games": self.games.isChecked(), "exclude_dirs": self.folders.values(),
+                "allow_dirs": self.allowed.values()}
+
+
+class ScanDetailsDialog(QDialog):
+    """Protected folders (with “Organize anyway”), plus folders and links that could not be scanned."""
+
+    def __init__(self, parent, protected, other_lines):
+        super().__init__(parent)
+        self.setWindowTitle("Scan details")
+        self.resize(820, 520)
+        self.chosen: list[str] = []
+        lay = QVBoxLayout(self)
+        lay.addWidget(T.BrandTitle("Protected folders", 17))
+        lay.addWidget(hint(
+            "These folders stay exactly as they are, because the files inside depend on their location. "
+            "If one was protected by mistake, select it and choose Organize anyway."))
+        self.table = QTableWidget(len(protected), 2)
+        self.table.setAccessibleName("Protected folders")
+        self.table.setHorizontalHeaderLabels(["Folder", "Why it is protected"])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setTextElideMode(Qt.ElideMiddle)
+        self.table.setWordWrap(False)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        for row, (path, why) in enumerate(protected):
+            item = QTableWidgetItem(path)
+            item.setToolTip(path)
+            self.table.setItem(row, 0, item)
+            self.table.setItem(row, 1, QTableWidgetItem(why))
+        lay.addWidget(self.table, 2)
+        bar = QHBoxLayout()
+        self.reveal_btn = QPushButton("Show in file browser")
+        self.reveal_btn.clicked.connect(self.reveal)
+        self.allow_btn = QPushButton("Organize selected anyway…")
+        self.allow_btn.clicked.connect(self.allow)
+        explicit = [p for p, why in protected if why == "Excluded folder"]
+        self.allow_btn.setToolTip("Lift the automatic protection, then scan again. Folders you excluded yourself "
+                                  "are managed under Rules → Exclusions.")
+        for b in (self.reveal_btn, self.allow_btn):
+            b.setEnabled(bool(protected))
+            bar.addWidget(b)
+        bar.addStretch()
+        lay.addLayout(bar)
+        self._explicit = set(explicit)
+        if other_lines:
+            lay.addWidget(QLabel("Not scanned"))
+            text = QPlainTextEdit("\n".join(other_lines))
+            text.setReadOnly(True)
+            text.setAccessibleName("Folders and links not scanned")
+            lay.addWidget(text, 1)
+        close = QDialogButtonBox(QDialogButtonBox.Close)
+        close.rejected.connect(self.reject)
+        lay.addWidget(close)
+
+    def _selected(self):
+        rows = sorted({i.row() for i in self.table.selectedIndexes()})
+        return [self.table.item(r, 0).text() for r in rows]
+
+    def reveal(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        for path in self._selected()[:5]:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+    def allow(self):
+        chosen = [p for p in self._selected() if p not in self._explicit]
+        if not chosen:
+            QMessageBox.information(self, "Organize anyway", "Select a protected folder first. Folders you "
+                                    "excluded yourself are changed under Rules → Exclusions.")
+            return
+        if QMessageBox.question(
+                self, "Organize anyway?",
+                f"Data Curator will organize files inside {len(chosen):,} protected folder(s) the next time you "
+                "scan. Apps or projects that expect those files in place may stop finding them.\n\n"
+                "You will still review every change before anything moves, and every run can be undone.",
+                QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel) != QMessageBox.Yes:
+            return
+        self.chosen = chosen
+        self.accept()
 
 
 class VideoMetadata(QWidget):

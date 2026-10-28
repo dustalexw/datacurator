@@ -37,7 +37,10 @@ class ScanOptions:
     cross_mounts: bool = False
     include_hidden: bool = False
     exclude_dirs: list[str] = field(default_factory=list)   # absolute paths never descended into
-    exclude_games: bool = True
+    exclude_games: bool = True      # protect dependent folders (projects, bundles, games, libraries …)
+    allow_dirs: list[str] = field(default_factory=list)     # "organize anyway" overrides
+    managed_dirs: list[str] = field(default_factory=list)   # category destinations inside sources
+    inventory_all: bool = False     # descend into dependent folders (files are listed, never moved)
     workers: int = 4
     network_workers: int = 2
 
@@ -95,7 +98,8 @@ def scan(roots: list[str], catalog: Catalog, opts: ScanOptions | None = None,
     opts = opts or ScanOptions()
     stats = ScanStats()
     roots = normalize_roots(roots)
-    exclude = DirectoryExclusions({"exclude_dirs": opts.exclude_dirs, "exclude_games": opts.exclude_games})
+    exclude = DirectoryExclusions({"exclude_dirs": opts.exclude_dirs, "exclude_games": opts.exclude_games,
+                                   "allow_dirs": opts.allow_dirs}, roots=roots, managed=opts.managed_dirs)
     scan_id = catalog.begin_scan(roots)
     completed = True
     for root in roots:
@@ -130,7 +134,7 @@ def _scan_root(root, catalog, opts, stats, exclude, scan_id, workers, progress, 
             if cancel is not None and cancel.is_set():
                 raise Cancelled()
             d = stack.pop()
-            if reason := exclude.reason(d):
+            if reason := exclude.reason(d, opaque_only=opts.inventory_all):
                 stats.excluded_folders.append((d, reason))
                 continue
             try:

@@ -18,7 +18,7 @@ from ..metadata.audio import primary_artist, year_of
 from ..profiles import destination_root
 from ..metadata.video import (episode_code, parse_movie, parse_tv, subtitle_suffix)
 from ..metadata.video import movie_search_hint
-from ..models import (ALT_AUDIO_EXT, HEIF_EXT, Action, Category, FileRecord, Flag, Kind, PlanItem)
+from ..models import (ALT_AUDIO_EXT, HEIF_EXT, Action, Category, FileRecord, Flag, Kind, PlanItem, group_for)
 from ..naming.sanitize import NamingRules, equivalence_key, sanitize_component
 from ..naming.template import Template
 from ..storage.capabilities import Capabilities, inspect, volume_identity
@@ -26,6 +26,7 @@ from ..storage.catalog import Catalog
 from .planstore import PlanStore
 from .scanner import normalize_roots
 from .exclusions import DirectoryExclusions
+from .filesets import anchored_reason, find_sets, follow_name
 from .util import DirListingCache, hash_file, is_within, is_within_real, same_entry, stat_sig
 
 VARIOUS = {"various artists", "various", "va", "v.a.", "v/a", "varios artistas", "verschiedene interpreten",
@@ -40,6 +41,20 @@ MOVIE_ART = re.compile(r"^(poster|fanart|banner|clearart|clearlogo|landscape|log
 SUB_DIRS = {"subs", "subtitles", "sub", "subtitle"}
 SAMPLE = re.compile(r"(^|[ ._-])sample([ ._-]|$)", re.I)
 PART_RE = re.compile(r"(?<![a-z])(?:cd|disc|part|pt)[ ._-]?(\d)(?!\d)", re.I)
+
+
+def _protected_reason(reason: str) -> str:
+    if reason == "Excluded folder":
+        return "In a folder you chose to leave alone."
+    return f"{reason}: its files depend on staying where they are, so nothing here is moved."
+
+
+def _names(d: str) -> set[str]:
+    """Case-folded names in a folder (used to spot saved-page folders beside their page)."""
+    try:
+        return {n.casefold() for n in os.listdir(d)}
+    except OSError:
+        return set()
 
 
 def norm(s: str | None) -> str:
@@ -101,7 +116,9 @@ class Planner:
                     for c, v in self.cfg.items()}
         self.overrides = catalog.overrides()
         self.excluded = catalog.exclusions()
-        self.dir_exclusions = DirectoryExclusions(profile.get("scan"))
+        from ..profiles import managed_roots
+        self.dir_exclusions = DirectoryExclusions(profile.get("scan"), roots=self.sources,
+                                                  managed=managed_roots(profile))
         ef = profile.get("extension_folders") or {}
         self.extension_folders = ef.get("folders", {}) if ef.get("enabled") else {}
         self.listing = DirListingCache()
@@ -129,6 +146,7 @@ class Planner:
         self._nfo_index = {}
         self._matches: dict[tuple, Any] = {}
         self._episodes: dict[str, dict] = {}
+        self._set_members: list[tuple[FileRecord, Any]] = []
 
     # ------------------------------------------------------------ utilities
     def _id(self) -> int:
@@ -417,13 +435,15 @@ class Planner:
             self._check_cancel()
             if reason := self.dir_exclusions.reason(d):
                 for r in recs:
-                    store.add(self.make_item(r, "other", None, reason + ": left in place.",
+                    store.add(self.make_item(r, "other", None, _protected_reason(reason),
                                             action=Action.SKIP.value, flags=[Flag.EXCLUDED.value]))
                 continue
             self._plan_dir(d, recs)
             n += len(recs)
             if self.progress:
                 self.progress(d, n)
+        store.flush()
+        self._plan_set_members()
         store.flush()
         self._resolve_plan_collisions()
         self._resolve_existing_collisions()
@@ -681,8 +701,12 @@ class Planner:
         store = self.store
         assert store is not None
         live = []
+        recs = [r for r in recs if r.path not in self.claimed]
+        members = find_sets([r.path for r in recs])
+        siblings = _names(d) if any(r.path.lower().endswith((".html", ".htm", ".xhtml", ".shtml")) for r in recs) else set()
         for r in recs:
-            if r.path in self.claimed:
+            if r.path in members:
+                self._set_members.append((r, members[r.path]))
                 continue
             if self._is_excluded(r.path):
                 store.add(self.make_item(r, "other", None, "Excluded by you.", action=Action.SKIP.value,
@@ -692,6 +716,10 @@ class Planner:
             if forced == "ignore":
                 store.add(self.make_item(r, "other", None, "Marked “leave alone” by you.", action=Action.SKIP.value,
                                          flags=[Flag.EXCLUDED.value]))
+                continue
+            if not forced and (why := anchored_reason(r.path, siblings)):
+                store.add(self.make_item(r, "other", None, why, action=Action.SKIP.value,
+                                         flags=[Flag.EXCLUDED.value], provenance={"protected": why}))
                 continue
             live.append(r)
         c = self._classify(d, live)
@@ -709,6 +737,28 @@ class Planner:
             self._plan_simple("documents", r)
         for r in c["other"]:
             self._plan_simple("other", r)
+
+    def _plan_set_members(self) -> None:
+        """Members of a file set follow their leader, or stay with it."""
+        store = self.store
+        for r, m in self._set_members:
+            self._check_cancel()
+            leader = store.by_source(m.leader)
+            if leader is None:
+                continue
+            prov = {"kept_with": leader.source}
+            if leader.action in (Action.MOVE.value, Action.NONE.value) and leader.dest:
+                name = follow_name(r.path, leader.source, leader.dest) if m.renamable else os.path.basename(r.path)
+                built = self._companion_built(leader.category, r, leader, name)
+                prov["leader_dest"] = leader.dest
+                store.add(self.make_item(r, leader.category, built, m.why, role="companion", parent_id=leader.id,
+                                         group=leader.group, provenance=prov))
+            else:
+                store.add(self.make_item(r, leader.category, None,
+                                         f"{m.why} “{os.path.basename(leader.source)}” is not being moved, so this stays too.",
+                                         role="companion", parent_id=leader.id, group=leader.group, provenance=prov,
+                                         action=Action.REVIEW.value if leader.action == Action.REVIEW.value
+                                         else Action.SKIP.value))
 
     # ------------------------------------------------------------------ music
     def _plan_music(self, d: str, audio: list[FileRecord], comps: list[FileRecord]) -> None:
@@ -1367,14 +1417,22 @@ class Planner:
             base = category_root
         rel = os.path.relpath(os.path.dirname(r.path), base)
         parts = [] if rel == "." else rel.split(os.sep)
+        group = o.get("group") or group_for(ext)
+        if cat == "other" and parts and base == category_root and "{group}" in cfg.get("folder", "") \
+                and parts[0].casefold() == group.casefold():
+            parts = parts[1:]  # already sorted into its kind folder: do not nest it again
         vals = {"project": o.get("project") or (parts[0] if parts else None),
                 "subpath": os.path.join(*parts) if parts else None, "name": o.get("name") or stem,
-                "original_name": stem, "ext": ext, "extension": ext, "type": ext.lstrip(".").upper() or None}
+                "original_name": stem, "ext": ext, "extension": ext, "type": ext.lstrip(".").upper() or None,
+                "group": group}
         if cat == "documents":
             vals["year"] = None
         built = self.build_path(cat, r, vals, vals)
         why = (f"Document in project “{vals['project']}”." if cat == "documents" and vals["project"] else
-               "Document." if cat == "documents" else "Other file.")
+               "Document." if cat == "documents" else
+               f"Sorted into {group}{' (from “' + vals['project'] + '”)' if vals['project'] else ''}."
+               if "{group}" in cfg.get("folder", "")
+               else "Other file.")
         store.add(self.make_item(r, cat, built, why, provenance={"project": "top-level folder"} if vals["project"] else {}))
 
     # ------------------------------------------------------------------ collisions
@@ -1525,7 +1583,8 @@ class Planner:
             # companions in conflict -> primary to review (video companions only)
             for it in store.query("role='companion' AND flags LIKE '%conflict%' AND action IN ('review','skip')"):
                 parent = store.get(it.parent_id) if it.parent_id else None
-                if parent and parent.category in ("tv", "movies") and parent.action == Action.MOVE.value:
+                if parent and (parent.category in ("tv", "movies") or it.provenance.get("kept_with")) \
+                        and parent.action == Action.MOVE.value:
                     parent.action = Action.REVIEW.value
                     parent.flags.append(Flag.CONFLICT.value)
                     parent.reason = f"Held back because its companion “{os.path.basename(it.source)}” has a name collision."
@@ -1535,8 +1594,10 @@ class Planner:
             changed = []
             for it in store.query("role='companion' AND action IN ('move','rewrite','write_tags')"):
                 parent = store.get(it.parent_id) if it.parent_id else None
-                if parent and parent.action not in (Action.MOVE.value, Action.NONE.value) and \
-                        (parent.category in ("tv", "movies") or it.action != Action.MOVE.value):
+                follows = it.provenance.get("kept_with")
+                moved_away = follows and parent and parent.dest != it.provenance.get("leader_dest")
+                if parent and (moved_away or parent.action not in (Action.MOVE.value, Action.NONE.value) and
+                               (parent.category in ("tv", "movies") or follows or it.action != Action.MOVE.value)):
                     it.action = Action.REVIEW.value if parent.action == Action.REVIEW.value else Action.SKIP.value
                     it.reason = f"Stays with “{os.path.basename(parent.source)}”, which is not being moved."
                     it.dest = it.dest_key = None

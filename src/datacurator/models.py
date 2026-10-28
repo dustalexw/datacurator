@@ -68,6 +68,39 @@ TEXT_EXT = {".txt", ".log", ".lrc", ".accurip", ".md5", ".sfv", ".ffp"}
 ALT_AUDIO_EXT = {".mka", ".ac3", ".dts", ".eac3", ".aac", ".flac", ".opus"}
 
 
+# Plain-language groups for “other” files ({group} template token).
+_GROUP_EXT = {
+    "Archives": ".zip .7z .rar .tar .gz .tgz .bz2 .tbz2 .xz .txz .zst .lz .lzma .cab .sit .sitx",
+    "Installers": ".dmg .pkg .mpkg .exe .msi .msix .msixbundle .appx .appxbundle .deb .rpm .apk .xapk .appimage .flatpakref .snap",
+    "Disk images": ".iso .img .bin .cue .toast .vhd .vhdx .vmdk .qcow2 .ccd .mds .mdf .nrg .gdi .cdr .udf",
+    "Code": (".py .js .mjs .cjs .ts .tsx .jsx .java .c .h .cc .cpp .hpp .cs .go .rs .rb .php .swift .kt .kts .scala .sh "
+             ".bash .zsh .bat .cmd .ps1 .sql .r .lua .pl .pm .dart .ex .exs .hs .ipynb .vue .svelte .css .scss .less"),
+    "Web pages": ".html .htm .xhtml .shtml .mhtml .mht .webarchive .url .webloc",
+    "Data": (".json .jsonl .ndjson .xml .yaml .yml .toml .ini .cfg .db .sqlite .sqlite3 .parquet .tsv .geojson .kml .kmz "
+             ".gpx .shp .shx .dbf .prj .ics .vcf .bak"),
+    "Fonts": ".ttf .otf .woff .woff2 .ttc .dfont .fon .pfb",
+    "Design and 3D": (".psd .psb .ai .eps .svg .sketch .fig .xd .afdesign .afphoto .afpub .indd .idml .stl .obj .fbx .3mf .blend "
+                      ".step .stp .iges .dwg .dxf .skp .gltf .glb .usdz .c4d .max .ma .mb"),
+    "eBooks": ".mobi .azw .azw3 .kfx .cbz .cbr .cb7 .djvu .fb2 .ibooks",
+    "Text": ".txt .log .text .nfo .diz",
+    "Torrents": ".torrent .magnet",
+    "Shortcuts": ".lnk .alias .desktop .shortcut",
+    "Certificates and keys": ".pem .crt .cer .der .p12 .pfx .pub .asc .gpg .sig .ovpn .mobileconfig .mobileprovision",
+    "Subtitles": ".srt .ass .ssa .sub .idx .vtt .sup .smi .ttml",
+    "Playlists": ".m3u .m3u8 .pls .cue",
+}
+OTHER_GROUPS: dict[str, str] = {}
+for _group, _exts in _GROUP_EXT.items():
+    for _e in _exts.split():
+        OTHER_GROUPS.setdefault(_e, _group)
+OTHER_GROUP_FALLBACK = "Miscellaneous"
+
+
+def group_for(ext: str) -> str:
+    """The plain-language folder name for an “other” file, such as Archives or Installers."""
+    return OTHER_GROUPS.get(ext.lower(), OTHER_GROUP_FALLBACK)
+
+
 def kind_for(ext: str) -> Kind:
     e = ext.lower()
     if e in AUDIO_EXT:

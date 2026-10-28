@@ -369,3 +369,41 @@ def test_title_bar_chrome_skips_non_cocoa_platforms(app, monkeypatch):
     assert w.windowFlags() == flags
     assert macchrome.integrate(w, QColor("#260F18")) is False
     w.close()
+
+
+def test_protected_folders_are_reported_and_can_be_organized_anyway(app, engine, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    from datacurator.gui import app as gui_app
+    from datacurator.gui.app import MainWindow
+    from datacurator.gui.organization import ScanDetailsDialog
+    lib = tmp_path / 'lib'
+    make_file(str(lib / 'site/.git/HEAD'), 'ref')
+    inside = make_file(str(lib / 'site/notes.pdf'))
+    loose = make_file(str(lib / 'loose.pdf'))
+    w = MainWindow(engine); w.use_category_layout(); w.sources.addItem(str(lib)); w.scan_and_preview(); pump(app, w)
+    assert w.store.by_source(inside).action == 'skip'
+    assert w.store.by_source(loose).dest == str(lib / 'Documents/loose.pdf')
+    assert w._protected == [(str(lib / 'site'), 'Software project (Git)')]
+    assert 'protected folder' in w.scan_notice.text() and not w.scan_details_btn.isHidden()
+    assert w.store.count('protected') == 1
+    # The dialog lists the folder and asks before lifting the protection.
+    dlg = ScanDetailsDialog(w, w._protected, [])
+    assert dlg.table.rowCount() == 1 and dlg.table.item(0, 1).text() == 'Software project (Git)'
+    dlg.table.selectRow(0)
+    monkeypatch.setattr(QMessageBox, 'question', staticmethod(lambda *a, **k: QMessageBox.Yes))
+    dlg.allow()
+    assert dlg.chosen == [str(lib / 'site')]
+    dlg.close()
+
+    class Chosen:
+        def __init__(self, *a):
+            self.chosen = [str(lib / 'site')]
+
+        def exec(self):
+            return 1
+    monkeypatch.setattr(gui_app, 'ScanDetailsDialog', Chosen)
+    w.show_scan_details(); pump(app, w)
+    assert w.exclusions.dump()['allow_dirs'] == [str(lib / 'site')]
+    assert w.store.by_source(inside).dest == str(lib / 'Documents/site/notes.pdf')
+    assert w.store.by_source(str(lib / 'site/.git/HEAD')) is None  # repository data stays protected
+    w.close()
