@@ -407,3 +407,14 @@ def test_protected_folders_are_reported_and_can_be_organized_anyway(app, engine,
     assert w.store.by_source(inside).dest == str(lib / 'Documents/site/notes.pdf')
     assert w.store.by_source(str(lib / 'site/.git/HEAD')) is None  # repository data stays protected
     w.close()
+
+
+def test_closed_advanced_section_shows_no_empty_panel(app, engine):
+    from datacurator.gui.app import MainWindow
+    w = MainWindow(engine); w.show(); w.steps.setCurrentRow(1); app.processEvents()
+    assert not w.adv.isChecked() and w.adv_panel.isHidden()
+    w.adv.setChecked(True); app.processEvents()
+    assert w.adv_panel.isVisible() and w.opt_hidden.isVisible()
+    w.adv.setChecked(False); app.processEvents()
+    assert w.adv_panel.isHidden()
+    w.close()
