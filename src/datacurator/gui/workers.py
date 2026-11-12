@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+import time
 import traceback
 
 from PySide6.QtCore import QObject, QThread, Signal
@@ -22,6 +23,15 @@ class Worker(QObject):
         self.kw = kw
         self.cancel_event = threading.Event()
         self.control = Control()
+        self._last_tick = 0.0
+
+    def tick(self, msg: str, done: int, total: int = 0) -> None:
+        """Progress limited to ~10 updates/s; the final update always goes through.
+        Per-file signals would otherwise flood the UI thread's event queue on large scans."""
+        now = time.monotonic()
+        if now - self._last_tick >= 0.1 or (total and done >= total):
+            self._last_tick = now
+            self.progress.emit(msg, done, total)
 
     def run(self):
         try:
@@ -54,13 +64,13 @@ def start(parent, worker: Worker) -> QThread:
 
 def job_scan_plan(w: Worker, engine, profile):
     def sp(d, n):
-        w.progress.emit(f"Scanning… {n:,} files", n, 0)
+        w.tick(f"Scanning… {n:,} files", n)
     stats = engine.scan(profile, progress=sp, cancel=w.cancel_event)
     if stats.cancelled:
         return {"cancelled": True, "stats": stats}
 
     def pp(d, n):
-        w.progress.emit(f"Planning… {n:,} files", n, 0)
+        w.tick(f"Planning… {n:,} files", n)
     store = engine.plan(profile, progress=pp, cancel=w.cancel_event)
     return {"stats": stats, "store": store,
             "music": library_rows(engine.catalog, profile["sources"], w.cancel_event)}
@@ -68,14 +78,14 @@ def job_scan_plan(w: Worker, engine, profile):
 
 def job_plan(w: Worker, engine, profile):
     def pp(d, n):
-        w.progress.emit(f"Planning… {n:,} files", n, 0)
+        w.tick(f"Planning… {n:,} files", n)
     return {"store": engine.plan(profile, progress=pp, cancel=w.cancel_event),
             "music": library_rows(engine.catalog, profile["sources"], w.cancel_event)}
 
 
 def job_music_library(w: Worker, engine, profile, scan=False):
     if scan:
-        stats = engine.scan(profile, progress=lambda d, n: w.progress.emit(f"Scanning… {n:,} files", n, 0),
+        stats = engine.scan(profile, progress=lambda d, n: w.tick(f"Scanning… {n:,} files", n),
                             cancel=w.cancel_event)
         if stats.cancelled:
             return None
@@ -84,7 +94,7 @@ def job_music_library(w: Worker, engine, profile, scan=False):
 
 def job_apply(w: Worker, engine, store, approve_deletes=False, item_ids=None):
     def cb(ev):
-        w.progress.emit(f"Applying… {ev['done']:,} of {ev['total']:,}", ev["done"], ev["total"])
+        w.tick(f"Applying… {ev['done']:,} of {ev['total']:,}", ev["done"], ev["total"])
     return engine.apply(store, progress=cb, control=w.control, approve_deletes=approve_deletes, item_ids=item_ids)
 
 
@@ -104,13 +114,13 @@ def job_probe(w: Worker, path):
 
 
 def job_duplicates(w: Worker, engine, profile, kind=None):
-    stats = engine.scan(profile, progress=lambda d, n: w.progress.emit(f"Scanning… {n:,} files", n, 0),
+    stats = engine.scan(profile, progress=lambda d, n: w.tick(f"Scanning… {n:,} files", n),
                         cancel=w.cancel_event)
     if stats.cancelled:
         return None
     try:
         store = engine.find_duplicates(profile, kind=kind, cancel=w.cancel_event,
-            progress=lambda n, total: w.progress.emit("Verifying duplicate candidates…", n, total))
+            progress=lambda n, total: w.tick("Verifying duplicate candidates…", n, total))
     except InterruptedError:
         return None
     return {"store": store, "stats": stats}

@@ -95,6 +95,22 @@ for _group, _exts in _GROUP_EXT.items():
         OTHER_GROUPS.setdefault(_e, _group)
 OTHER_GROUP_FALLBACK = "Miscellaneous"
 
+# Plain-language groups for documents ({group} token in the documents category).
+_DOC_GROUP_EXT = {
+    "PDFs": ".pdf",
+    "Text documents": ".doc .docx .odt .rtf .pages .md .tex",
+    "Spreadsheets": ".xls .xlsx .ods .csv .numbers",
+    "Presentations": ".ppt .pptx .odp .key",
+    "eBooks": ".epub",
+}
+DOCUMENT_GROUPS: dict[str, str] = {e: g for g, exts in _DOC_GROUP_EXT.items() for e in exts.split()}
+DOCUMENT_GROUP_FALLBACK = "Other documents"
+
+
+def document_group_for(ext: str) -> str:
+    """Folder name for a document by type, such as PDFs or Spreadsheets."""
+    return DOCUMENT_GROUPS.get(ext.lower(), DOCUMENT_GROUP_FALLBACK)
+
 
 def group_for(ext: str) -> str:
     """The plain-language folder name for an “other” file, such as Archives or Installers."""

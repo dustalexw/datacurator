@@ -18,7 +18,7 @@ from ..metadata.audio import primary_artist, year_of
 from ..profiles import destination_root
 from ..metadata.video import (episode_code, parse_movie, parse_tv, subtitle_suffix)
 from ..metadata.video import movie_search_hint
-from ..models import (ALT_AUDIO_EXT, HEIF_EXT, Action, Category, FileRecord, Flag, Kind, PlanItem, group_for)
+from ..models import (ALT_AUDIO_EXT, HEIF_EXT, Action, Category, FileRecord, Flag, Kind, PlanItem, document_group_for, group_for)
 from ..naming.sanitize import NamingRules, equivalence_key, sanitize_component
 from ..naming.template import Template
 from ..storage.capabilities import Capabilities, inspect, volume_identity
@@ -1421,12 +1421,16 @@ class Planner:
         if cat == "other" and parts and base == category_root and "{group}" in cfg.get("folder", "") \
                 and parts[0].casefold() == group.casefold():
             parts = parts[1:]  # already sorted into its kind folder: do not nest it again
+        if cat == "documents" and parts and base == category_root and "{group}" in cfg.get("folder", "") \
+                and parts[0].casefold() == (o.get("group") or document_group_for(ext)).casefold():
+            parts = parts[1:]  # already sorted into its type folder: do not nest it again
         vals = {"project": o.get("project") or (parts[0] if parts else None),
                 "subpath": os.path.join(*parts) if parts else None, "name": o.get("name") or stem,
                 "original_name": stem, "ext": ext, "extension": ext, "type": ext.lstrip(".").upper() or None,
                 "group": group}
         if cat == "documents":
             vals["year"] = None
+            vals["group"] = o.get("group") or document_group_for(ext)
         built = self.build_path(cat, r, vals, vals)
         why = (f"Document in project “{vals['project']}”." if cat == "documents" and vals["project"] else
                "Document." if cat == "documents" else

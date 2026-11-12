@@ -38,10 +38,11 @@ def left_alone(store, path):
     ({".config/app/settings.json": "{}"}, "Hidden app or settings folder"),
     ({"tool/.venv/pyvenv.cfg": "x", "tool/run.py": "print()"}, "Software project"),
 ])
-def test_dependent_folders_are_left_in_place(engine, lib, layout, why):
+@pytest.mark.parametrize("build", [P.opening_profile, P.organized_profile])
+def test_dependent_folders_are_left_in_place(engine, lib, layout, why, build):
     paths = [make_file(str(lib / rel), content) for rel, content in layout.items()]
     before = snapshot(str(lib))
-    stats, store = plan(engine, P.opening_profile([str(lib)]))
+    stats, store = plan(engine, build([str(lib)]))
     reasons = {r for _, r in stats.excluded_folders}
     for path in paths:
         item = store.by_source(path)
@@ -217,3 +218,41 @@ def test_files_sorted_by_data_curator_never_look_like_a_project(engine, lib):
     assert not stats.excluded_folders
     assert store.summary()["changes"] == 0
     assert all(it.action == "none" for it in store.items())
+
+
+# ------------------------------------------------ organized layout: sensible structure + stability
+def test_organized_layout_groups_documents_by_type_keeps_projects_together_and_is_stable(engine, lib):
+    files = {
+        "report.pdf": "p", "budget.xlsx": "x", "talk.pptx": "s", "notes.docx": "d", "novel.epub": "e",
+        "Taxes 2025/receipt.pdf": "r", "Taxes 2025/summary.xlsx": "s", "Taxes 2025/letter.docx": "l",
+        "setup.dmg": "i", "Course/lecture.zip": "z", "tool/main.py": "c",
+    }
+    paths = {rel: make_file(str(lib / rel), c) for rel, c in files.items()}
+    prof = P.organized_profile([str(lib)])
+    stats, store = plan(engine, prof)
+
+    def dest(rel):
+        return os.path.relpath(store.by_source(paths[rel]).dest, str(lib))
+    assert dest("report.pdf") == "Documents/PDFs/report.pdf"
+    assert dest("budget.xlsx") == "Documents/Spreadsheets/budget.xlsx"
+    assert dest("talk.pptx") == "Documents/Presentations/talk.pptx"
+    assert dest("notes.docx") == "Documents/Text documents/notes.docx"
+    assert dest("novel.epub") == "Documents/eBooks/novel.epub"
+    # a project's files stay under the project, split by type inside it
+    assert dest("Taxes 2025/receipt.pdf") == "Documents/Taxes 2025/PDFs/receipt.pdf"
+    assert dest("Taxes 2025/summary.xlsx") == "Documents/Taxes 2025/Spreadsheets/summary.xlsx"
+    assert dest("Course/lecture.zip") == "Other files/Archives/Course/lecture.zip"
+    assert engine.apply(store).failed == 0
+    # a second pass proposes nothing: the structure is stable
+    _, again = plan(engine, prof)
+    assert again.count("changes") == 0, [(i.source, i.dest) for i in again.items() if i.action == "move"]
+
+
+def test_organized_layout_keeps_file_sets_and_sidecars_together(engine, lib):
+    jpg = make_photo(str(lib / "IMG_5.jpg"))
+    xmp = make_file(str(lib / "IMG_5.xmp"), "<x/>")
+    part1 = make_file(str(lib / "backup.part1.rar"), "1")
+    part2 = make_file(str(lib / "backup.part2.rar"), "2")
+    _, store = plan(engine, P.organized_profile([str(lib)]))
+    assert os.path.dirname(store.by_source(xmp).dest) == os.path.dirname(store.by_source(jpg).dest)
+    assert os.path.dirname(store.by_source(part1).dest) == os.path.dirname(store.by_source(part2).dest)

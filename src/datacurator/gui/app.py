@@ -35,6 +35,7 @@ from . import theme as T
 from .models import PlanTableModel, build_tree
 from .about import AboutDialog
 from .music import MusicPage
+from .quick import QuickPage
 from .organization import ExtensionFolders, Exclusions, ScanDetailsDialog, VideoMetadata, DuplicatePage
 
 CATS = [("music", "Music"), ("tv", "TV"), ("movies", "Movies"), ("documents", "Documents"), ("photos", "Photos"),
@@ -305,7 +306,12 @@ class MainWindow(QMainWindow):
         sl.addSpacing(12)
         sl.addWidget(T.PeppermintStripe())
         sl.addSpacing(12)
-        sl.addWidget(label("WORKFLOW", "section", wrap=False))
+        self.home_btn = primary("✦  Quick organize")
+        self.home_btn.setToolTip("Drop a folder, get a suggested layout, apply, undo")
+        self.home_btn.clicked.connect(self.show_quick)
+        sl.addWidget(self.home_btn)
+        sl.addSpacing(14)
+        sl.addWidget(label("ADVANCED STEPS", "section", wrap=False))
         sl.addSpacing(4)
         self.steps = QListWidget()
         self.steps.setObjectName("steps")
@@ -327,17 +333,21 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         self.pages.addWidget(self._page_sources())
         self.pages.addWidget(self._page_rules())
-        self.pages.addWidget(self._page_review())
+        self.review_page = self._page_review()
+        self.pages.addWidget(self.review_page)
         self.pages.addWidget(self._page_results())
         self.music_page = MusicPage(self, self.scan_music_library, self.save_music_details,
                                     self.use_music_layout, self.scan_and_preview)
         self.pages.addWidget(self.music_page)
         self.duplicate_page = DuplicatePage(self, self.find_duplicates, self.quarantine_duplicates, self._rules_changed)
         self.pages.addWidget(self.duplicate_page)
+        self.quick = QuickPage(self)           # page 6: the default, one-screen front end
+        self.pages.addWidget(self.quick)
         self.music_page.write_tags.toggled.connect(self.opt_tags.setChecked)
         self.opt_tags.toggled.connect(self.music_page.write_tags.setChecked)
         self.steps.currentRowChanged.connect(self.pages.setCurrentIndex)
-        self.steps.setCurrentRow(0)
+        self.pages.currentChanged.connect(lambda _i: self._build_tree_if_needed())
+        self.show_quick()
 
         sb = QStatusBar()
         self.setStatusBar(sb)
@@ -365,6 +375,14 @@ class MainWindow(QMainWindow):
         else:
             self._load_profile_into_ui(self.profile)
         QTimer.singleShot(200, self._check_interrupted)
+
+    def show_quick(self):
+        """Show the Quick organize page and clear the Advanced step selection."""
+        self.steps.blockSignals(True)
+        self.steps.setCurrentRow(-1)
+        self.steps.clearSelection()
+        self.steps.blockSignals(False)
+        self.pages.setCurrentWidget(self.quick)
 
     # ------------------------------------------------------------------ menus
     def _menus(self):
@@ -1178,9 +1196,8 @@ class MainWindow(QMainWindow):
         if res.get("music") is not None:
             self.music_page.set_rows(res["music"])
         self.model.set_store(self.store)
-        self.tree.setModel(build_tree(self.store))
-        self.tree.expandToDepth(1)
-        self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self._tree_dirty = True           # built lazily: only when the Review page is actually shown
+        self._build_tree_if_needed()
         s = self.store.summary()
         self.summary.setText(
             f"{s['changes']:,} to change · {s['unchanged']:,} already organized · {s['review']:,} to review · "
@@ -1223,6 +1240,17 @@ class MainWindow(QMainWindow):
         if s["changes"] == 0 and s["review"] and self.filter.currentData() != "all":
             self.filter.setCurrentIndex(self.filter.findData("review"))
         self._filter_changed()
+
+    def _build_tree_if_needed(self):
+        """Building the folder tree walks every destination folder; skip it while Review is hidden."""
+        if not getattr(self, "_tree_dirty", False) or self.store is None:
+            return
+        if self.pages.currentWidget() is not self.review_page:
+            return
+        self._tree_dirty = False
+        self.tree.setModel(build_tree(self.store))
+        self.tree.expandToDepth(1)
+        self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
 
     def _protected_folders(self, st):
         """Protected folders from the scan plus those the plan left in place, outermost first, de-duplicated."""
@@ -1486,6 +1514,7 @@ class MainWindow(QMainWindow):
         self.worker = worker
         self.music_page.set_busy(True)
         self.duplicate_page.set_busy(True)
+        self.quick.set_busy(True)
         self.pages.widget(0).setEnabled(False)
         self.pages.widget(1).setEnabled(False)
         self.pages.widget(2).setEnabled(False)
@@ -1519,6 +1548,7 @@ class MainWindow(QMainWindow):
         self.scan_btn.setEnabled(True)
         self.music_page.set_busy(False)
         self.duplicate_page.set_busy(False)
+        self.quick.set_busy(False)
         self.pages.widget(0).setEnabled(True)
         self.pages.widget(1).setEnabled(True)
         self.pages.widget(2).setEnabled(True)

@@ -55,6 +55,9 @@ PRESETS: dict[str, dict[str, dict[str, str]]] = {
     },
     "documents": {
         "project": {"folder": "[{project}]", "filename": "{name}", "label": "Project / Filename"},
+        "project/group": {"folder": "[{project}]/{group}", "filename": "{name}",
+                          "label": "Project / Type (PDFs, Spreadsheets …) / Filename"},
+        "group": {"folder": "{group}", "filename": "{name}", "label": "Type (PDFs, Spreadsheets …) / Filename"},
     },
     "photos": {
         "year/year-month": {"folder": "{year}/{year}-{month:02}", "filename": "{name}",
@@ -283,8 +286,9 @@ def organized_profile(sources=()):
     """Maximum-tidiness suggestion: nearly every file gets a home inside its source folder.
 
     Builds on `opening_profile` (category folders, full inventory, empty folders tidied) and
-    additionally: sorts photos without an embedded date by modified time, resolves name
-    collisions with an alternate name instead of parking them in review, and keeps documents
+    additionally: sorts documents into PDFs / Text documents / Spreadsheets / Presentations / eBooks
+    (inside their project folder when they have one), sorts photos without an embedded date by
+    modified time, resolves name collisions with an alternate name instead of parking them in review, and keeps documents
     and other files together with the folder they came from. Metadata is still never invented,
     so genuinely ambiguous music/TV/movie files remain in the review queue. Nothing moves
     until the plan is applied.
@@ -292,5 +296,7 @@ def organized_profile(sources=()):
     prof = opening_profile(sources)
     return normalize({**prof, "name": "Organized: everything into category folders",
                       "categories": {**prof["categories"],
-                                     "photos": {**prof["categories"]["photos"], "date_fallback": "mtime"}},
+                                     "photos": {**prof["categories"]["photos"], "date_fallback": "mtime"},
+                                     # Documents keep their project together, then split by type.
+                                     "documents": apply_preset(prof["categories"]["documents"], "documents", "project/group")},
                       "conflict_policy": "alternate"})
