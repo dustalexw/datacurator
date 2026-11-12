@@ -124,3 +124,28 @@ def job_duplicates(w: Worker, engine, profile, kind=None):
     except InterruptedError:
         return None
     return {"store": store, "stats": stats}
+
+
+# ---------------------------------------------------- per-subfolder structures
+def job_subfolder_plan(w: Worker, engine, parent, assignments, loose):
+    from ..engine import subfolders as SF
+    try:
+        groups = SF.plan_groups(engine, parent, assignments, loose,
+                                progress=lambda d, n: w.tick(f"Scanning… {n:,} files", n), cancel=w.cancel_event)
+    except InterruptedError:
+        return {"cancelled": True}
+    return {"groups": groups}
+
+
+def job_subfolder_apply(w: Worker, engine, groups):
+    from ..engine import subfolders as SF
+
+    def cb(ev):
+        w.tick(f"Applying… {ev['done']:,} of {ev['total']:,}", ev["done"], ev["total"])
+    return SF.apply_groups(engine, groups, progress=cb, control=w.control)
+
+
+def job_subfolder_undo(w: Worker, engine, batch_ids):
+    from ..engine import subfolders as SF
+    w.progress.emit("Undoing…", 0, 0)
+    return SF.undo_groups(engine, batch_ids)

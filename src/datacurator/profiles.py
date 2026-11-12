@@ -300,3 +300,41 @@ def organized_profile(sources=()):
                                      # Documents keep their project together, then split by type.
                                      "documents": apply_preset(prof["categories"]["documents"], "documents", "project/group")},
                       "conflict_policy": "alternate"})
+
+
+# ----------------------------------------------------------------- per-subfolder layouts
+def _single_category_profile(cat: str, name: str, sources, exclude_dirs=(), **cfg):
+    """A profile that organizes exactly one category inside each source; everything else stays put."""
+    cats = {c: {"enabled": False} for c in CATEGORY_FOLDERS}
+    cats[cat] = {"enabled": True, **cfg}
+    return normalize({"name": name, "sources": list(sources), "categories": cats, "cleanup_empty_dirs": True,
+                      "conflict_policy": "alternate", "scan": {"exclude_dirs": list(exclude_dirs)}})
+
+
+def _layout_tidy(sources, exclude_dirs=()):
+    prof = organized_profile(sources)
+    prof["scan"]["exclude_dirs"] = list(exclude_dirs)
+    return normalize(prof)
+
+
+SUBFOLDER_LAYOUTS: dict[str, str] = {
+    "tidy": "Everything tidy",
+    "music": "Music — Artist / Album",
+    "photos": "Photos — Year / Month",
+    "documents": "Documents — by type",
+    "leave": "Leave as is",
+}
+
+
+def subfolder_profile(layout: str, sources, exclude_dirs=()) -> dict:
+    """Profile for one of the few preset structures, applied *inside* each of `sources`."""
+    if layout == "tidy":
+        return _layout_tidy(sources, exclude_dirs)
+    if layout == "music":
+        return _single_category_profile("music", "Music library", sources, exclude_dirs, preset="album_artist/album")
+    if layout == "photos":
+        return _single_category_profile("photos", "Photos by date", sources, exclude_dirs,
+                                        preset="year/year-month", date_fallback="mtime")
+    if layout == "documents":
+        return _single_category_profile("documents", "Documents by type", sources, exclude_dirs, preset="group")
+    raise CuratorError(f"Unknown layout '{layout}'. Choose one of: {', '.join(SUBFOLDER_LAYOUTS)}")

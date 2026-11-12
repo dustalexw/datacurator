@@ -120,3 +120,23 @@ def test_zero_config_source_suggests_organized_layout(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Documents" in out and "Other files" in out
     assert (src / "report.pdf").exists()            # preview only: nothing moved
+
+
+def test_subfolders_command_previews_then_applies_with_per_folder_presets(tmp_path, capsys):
+    from fixtures import make_file, make_photo
+    parent = tmp_path / "Stuff"
+    for i in range(3):
+        make_photo(str(parent / "Trip" / f"IMG_{i}.jpg"))
+    for n in ("a.pdf", "b.xlsx"):
+        make_file(parent / "Work" / n, b"x")
+    make_file(parent / "repo" / ".git" / "HEAD", b"ref")
+    data = str(tmp_path / "data")
+    assert main(["-q", "--data-dir", data, "subfolders", str(parent)]) == 0
+    out = capsys.readouterr().out
+    assert "Trip" in out and "photos" in out and "documents" in out and "left exactly as it is" in out
+    assert (parent / "Work" / "a.pdf").exists()                      # preview only
+    assert main(["-q", "--data-dir", data, "subfolders", str(parent), "-l", "Work=tidy", "--apply", "-y"]) == 0
+    assert (parent / "Work" / "Documents" / "PDFs" / "a.pdf").exists()
+    assert (parent / "Trip" / "2021").exists() and (parent / "repo" / ".git" / "HEAD").exists()
+    assert main(["-q", "--data-dir", data, "subfolders", str(parent), "-l", "repo=tidy"]) == 1   # protected
+    assert "stays as it is" in capsys.readouterr().err

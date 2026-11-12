@@ -233,6 +233,65 @@ def cmd_history(a):
     return 0
 
 
+def cmd_subfolders(a):
+    """Organize each subfolder of a folder with its own preset structure (suggested from its contents)."""
+    from .engine import subfolders as SF
+    parent = os.path.abspath(a.folder)
+    if not os.path.isdir(parent):
+        raise CuratorError(f"{parent} is not a folder.")
+    infos = SF.inspect_all(parent)
+    assign = {i.path: i.layout for i in infos}
+    names = {i.name: i for i in infos}
+    for spec in a.layout or []:
+        name, _, layout = spec.partition("=")
+        if name not in names:
+            raise CuratorError(f"No subfolder named {name!r} in {parent}.\n  Subfolders: {', '.join(names) or '(none)'}")
+        if layout not in profiles_mod.SUBFOLDER_LAYOUTS:
+            raise CuratorError(f"Unknown layout {layout!r}. Choose one of: {', '.join(profiles_mod.SUBFOLDER_LAYOUTS)}")
+        if names[name].protected and layout != SF.LEAVE:
+            raise CuratorError(f"{name} stays as it is ({names[name].protected}): its files depend on where they are.")
+        assign[names[name].path] = layout
+    print(f"Subfolders of {parent}:")
+    for i in infos:
+        why = f"  ({i.protected}: left exactly as it is)" if i.protected else f"  {i.files:,} files"
+        print(f"  {i.name:<28} → {assign[i.path]:<10}{why}")
+    if not infos:
+        print("  (no subfolders)")
+    e = _engine(a)
+    groups = SF.plan_groups(e, parent, assign, loose=a.loose,
+                            progress=_progress_printer(a.quiet, "plan"), cancel=_cancel_event(a))
+    total = 0
+    for g in groups:
+        s = g.store.summary()
+        total += s["changes"]
+        print(f"\n{g.label}\n  {', '.join(os.path.basename(x) for x in g.sources)}: {s['changes']:,} to change · "
+              f"{s['unchanged']:,} already organized · {s['review']:,} to review")
+        if a.show:
+            _print_items(g.store, "changes", "", a.limit)
+    if not total:
+        print("\nNothing to do.")
+        return 0
+    if not a.apply:
+        print(f"\n{total:,} changes planned. Nothing has been changed. Add --apply to run them (undoable).")
+        return 0
+    if not a.yes and input(f"Apply {total:,} changes? [y/N] ").strip().lower() not in ("y", "yes"):
+        print("Nothing changed.")
+        return 1
+    control = Control()
+    sd = getattr(a, "shutdown", None)
+    detach = sd.attach(control.cancel) if sd is not None else (lambda: None)
+    try:
+        res = SF.apply_groups(e, groups, progress=_progress_printer(a.quiet, "apply"), control=control)
+    finally:
+        detach()
+    print(f"\r{res.status.replace('_', ' ').capitalize()}. {res.message}".ljust(80))
+    for src, why in res.errors[:20]:
+        print(f"  - {src}: {why}")
+    if res.batches:
+        print("Undo with: " + " ; ".join(f"curator undo {b}" for b in reversed(res.batches)))
+    return 0 if res.status == "completed" else 2
+
+
 def cmd_probe(a):
     from .storage.capabilities import probe
     e = _engine(a)
@@ -488,6 +547,17 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("history", help="list batches")
     sp.add_argument("--limit", type=int, default=30)
     sp.set_defaults(fn=cmd_history)
+    sp = sub.add_parser("subfolders", help="organize each subfolder with its own preset structure")
+    sp.add_argument("folder")
+    sp.add_argument("--layout", "-l", action="append", metavar="NAME=PRESET",
+                    help="override a subfolder's preset: " + ", ".join(profiles_mod.SUBFOLDER_LAYOUTS))
+    sp.add_argument("--loose", default="leave", choices=list(profiles_mod.SUBFOLDER_LAYOUTS),
+                    help="preset for files lying directly in the folder (default: leave)")
+    sp.add_argument("--apply", action="store_true", help="apply the plan (otherwise preview only)")
+    sp.add_argument("--yes", "-y", action="store_true")
+    sp.add_argument("--show", action="store_true", help="list every proposed change")
+    sp.add_argument("--limit", type=int, default=100)
+    sp.set_defaults(fn=cmd_subfolders)
     sp = sub.add_parser("probe", help="measure a destination's filesystem behaviour")
     sp.add_argument("path")
     sp.set_defaults(fn=cmd_probe)

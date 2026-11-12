@@ -10,11 +10,12 @@ import os
 import time
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QProgressBar,
-                               QPushButton, QStackedWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QProgressBar,
+                               QPushButton, QStackedWidget, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from .. import profiles as P
 from ..core.progress import format_bytes, format_duration
+from ..engine import subfolders as SF
 from ..models import CuratorError
 from . import theme as T
 from . import workers as W
@@ -111,6 +112,9 @@ class QuickPage(QWidget):
         self.win = win
         self.sources: list[str] = []
         self.last_batch: str | None = None
+        self.last_batches: list[str] = []
+        self.groups: list = []           # per-subfolder plans when that mode is on
+        self.sub_infos: list = []
         self._t0 = 0.0
         self._phase = "Working"
         lay = QVBoxLayout(self)
@@ -139,14 +143,42 @@ class QuickPage(QWidget):
         self.chosen_box = QVBoxLayout()
         self.chosen_box.setSpacing(4)
         v.addLayout(self.chosen_box)
-        row = QHBoxLayout()
+        self.sub_check = QCheckBox("Organize each subfolder with its own structure")
+        self.sub_check.setToolTip("Choose a preset per subfolder (music, photos, documents, everything tidy, or leave "
+                                  "as is). Folders that depend on their location are always left alone.")
+        self.sub_check.toggled.connect(self._sub_toggled)
+        self.sub_check.setVisible(False)
+        v.addWidget(self.sub_check)
+        self.sub_table = QTableWidget(0, 3)
+        self.sub_table.setHorizontalHeaderLabels(["Subfolder", "Contents", "Structure"])
+        self.sub_table.verticalHeader().setVisible(False)
+        self.sub_table.setSelectionMode(QTableWidget.NoSelection)
+        self.sub_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.sub_table.setAccessibleName("Structure for each subfolder")
+        self.sub_table.setMaximumHeight(260)
+        self.sub_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.sub_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.sub_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.sub_table.setVisible(False)
+        v.addWidget(self.sub_table)
+        self.loose_row = QWidget()
+        lr = QHBoxLayout(self.loose_row)
+        lr.setContentsMargins(0, 0, 0, 0)
+        lr.addWidget(_label("Files directly in the folder", wrap=False))
+        self.loose_box = self._layout_combo()
+        lr.addWidget(self.loose_box, 1)
+        self.loose_row.setVisible(False)
+        v.addWidget(self.loose_row)
+        self.layout_row = QWidget()
+        row = QHBoxLayout(self.layout_row)
+        row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(_label("Layout", wrap=False))
         self.layout_box = QComboBox()
         for text, _ in LAYOUTS:
             self.layout_box.addItem(text)
         self.layout_box.setAccessibleName("Layout")
         row.addWidget(self.layout_box, 1)
-        v.addLayout(row)
+        v.addWidget(self.layout_row)
         self.suggest_btn = _button("✦  Suggest organization", primary=True)
         self.suggest_btn.setEnabled(False)
         self.suggest_btn.clicked.connect(self.suggest)
@@ -212,7 +244,7 @@ class QuickPage(QWidget):
         row = QHBoxLayout()
         self.apply_btn = _button("Apply", primary=True)
         self.apply_btn.clicked.connect(self.apply)
-        tune = _button("Fine-tune…")
+        self.tune_btn = tune = _button("Fine-tune…")
         tune.setToolTip("Open the detailed Review page for per-file control")
         tune.clicked.connect(lambda: self.win.steps.setCurrentRow(2))
         back = _button("Start over")
@@ -248,6 +280,60 @@ class QuickPage(QWidget):
         return w
 
     # ----------------------------------------------------------------- start
+    @staticmethod
+    def _layout_combo() -> QComboBox:
+        box = QComboBox()
+        for key, text in P.SUBFOLDER_LAYOUTS.items():
+            box.addItem(text, key)
+        box.setCurrentIndex(box.findData(SF.LEAVE))
+        return box
+
+    def _sub_toggled(self, on: bool):
+        self.sub_table.setVisible(on)
+        self.loose_row.setVisible(on)
+        self.layout_row.setVisible(not on)
+
+    def _refresh_subfolders(self):
+        """Offer per-subfolder structures when exactly one folder with subfolders is chosen."""
+        parent = self.sources[0] if len(self.sources) == 1 else None
+        infos = []
+        if parent:
+            try:
+                QApplication.setOverrideCursor(Qt.WaitCursor)
+                infos = SF.inspect_all(parent)
+            except CuratorError:
+                infos = []
+            finally:
+                QApplication.restoreOverrideCursor()
+        self.sub_infos = infos
+        self.sub_check.setVisible(bool(infos))
+        if not infos:
+            self.sub_check.setChecked(False)
+        self.sub_table.setRowCount(len(infos))
+        for r, info in enumerate(infos):
+            self.sub_table.setItem(r, 0, QTableWidgetItem(info.name))
+            count = "protected" if info.protected else ("empty" if not info.files else
+                                                        f"{info.files:,}{'+' if info.files >= SF.SAMPLE_LIMIT else ''} files")
+            self.sub_table.setItem(r, 1, QTableWidgetItem(count))
+            box = self._layout_combo()
+            box.setCurrentIndex(box.findData(info.layout))
+            box.setAccessibleName(f"Structure for {info.name}")
+            if info.protected:
+                box.setEnabled(False)
+                tip = f"{info.protected}: its files depend on where they are, so it is left exactly as it is."
+                for c in (0, 1):
+                    self.sub_table.item(r, c).setToolTip(tip)
+                box.setToolTip(tip)
+            self.sub_table.setCellWidget(r, 2, box)
+        self.sub_table.resizeRowsToContents()
+
+    def _assignments(self) -> dict[str, str]:
+        out = {}
+        for r, info in enumerate(self.sub_infos):
+            box = self.sub_table.cellWidget(r, 2)
+            out[info.path] = SF.LEAVE if info.protected else box.currentData()
+        return out
+
     def _fill_chips(self):
         while self.chips.count():
             item = self.chips.takeAt(0)
@@ -284,6 +370,7 @@ class QuickPage(QWidget):
             rm.clicked.connect(lambda _=False, p=p: self.remove_source(p))
             h.addWidget(rm)
             self.chosen_box.addWidget(row)
+        self._refresh_subfolders()
         self.suggest_btn.setEnabled(bool(self.sources) and not self.win.thread)
 
     def remove_source(self, p: str):
@@ -292,6 +379,8 @@ class QuickPage(QWidget):
         self._refresh_sources()
 
     def reset(self):
+        self.groups = []
+        self.last_batches = []
         self.sources.clear()
         self._refresh_sources()
         self.show_view(START)
@@ -306,6 +395,15 @@ class QuickPage(QWidget):
     # --------------------------------------------------------------- suggest
     def suggest(self):
         if self.win.thread is not None:
+            return
+        self.groups = []
+        if self.sub_check.isChecked() and self.sub_infos:
+            self.win.store = None
+            self._begin("Scanning…")
+            self.win._run(W.job_subfolder_plan, self._planned_groups, self.win.engine, self.sources[0],
+                          self._assignments(), self.loose_box.currentData(), cancellable=True, on_fail=self._failed)
+            if self.win.worker is not None:
+                self.win.worker.progress.connect(self._progress)
             return
         try:
             _, builder = LAYOUTS[self.layout_box.currentIndex()]
@@ -353,16 +451,41 @@ class QuickPage(QWidget):
         if res.get("cancelled"):
             self.show_view(START)
             return
-        store, st = self.win.store, res.get("stats")
-        s = store.summary()
-        srcs = self.win.profile["sources"]
-        groups = group_destinations(
-            store.rows("SELECT dest_dir, COUNT(*), COALESCE(SUM(size),0) FROM items "
-                       "WHERE action='move' AND dest_dir IS NOT NULL GROUP BY dest_dir"), srcs)
+        st = res.get("stats")
+        self.tune_btn.setVisible(True)
+        self._render_review([self.win.store], self.win.profile["sources"], st.files if st else 1,
+                            len(st.errors) if st else 0, len(self.win._protected) if st else 0)
+
+    def _planned_groups(self, res):
+        if res.get("cancelled"):
+            self.show_view(START)
+            self.win.status_text.setText("Scan cancelled. Nothing was changed.")
+            return
+        self.groups = res["groups"]
+        stats = [g.stats for g in self.groups if g.stats is not None]
+        protected = sum(1 for i in self.sub_infos if i.protected) + sum(len(s.excluded_folders) for s in stats)
+        self.tune_btn.setVisible(False)       # the detailed Review page shows one plan; this mode has several
+        self.win.status_text.setText(f"Planned {len(self.groups)} structure(s) across "
+                                     f"{sum(s.files for s in stats):,} files. Nothing has been changed.")
+        srcs = [i.path for i in self.sub_infos] + ([self.sources[0]] if self.groups and any(
+            g.sources == [self.sources[0]] for g in self.groups) else [])
+        self._render_review([g.store for g in self.groups], srcs, sum(s.files for s in stats),
+                            sum(len(s.errors) for s in stats), protected, per_subfolder=True)
+
+    def _render_review(self, stores, srcs, files: int, errors: int, protected: int, per_subfolder: bool = False):
+        summaries = [s.summary() for s in stores]
+        s = {k: sum(x.get(k, 0) for x in summaries) for k in ("changes", "unchanged", "review", "protected",
+                                                              "bytes_to_copy")}
+        s["protected"] = max(s["protected"], protected)
+        rows = [r for st in stores for r in st.rows(
+            "SELECT dest_dir, COUNT(*), COALESCE(SUM(size),0) FROM items "
+            "WHERE action='move' AND dest_dir IS NOT NULL GROUP BY dest_dir")]
+        groups = group_destinations(rows, srcs)
         n_folders = len(groups)
         if s["changes"]:
             self.hero.setText(f"{s['changes']:,} files → {n_folders:,} folder{'s' if n_folders != 1 else ''}")
-            self.hero_sub.setText("Review the summary below. Nothing has moved yet.")
+            self.hero_sub.setText("Each subfolder follows its own structure. Nothing has moved yet." if per_subfolder
+                                  else "Review the summary below. Nothing has moved yet.")
         else:
             self.hero.setText("Already organized ✓")
             self.hero_sub.setText("Nothing to move with this layout." +
@@ -370,8 +493,9 @@ class QuickPage(QWidget):
         for key, tile in self.tiles.items():
             tile.set_value(f"{s.get(key, 0):,}")
         self.tree.clear()
-        def row(name, files, size):
-            it = QTreeWidgetItem([name, f"{files:,}", format_bytes(size)])
+
+        def row(name, count, size):
+            it = QTreeWidgetItem([name, f"{count:,}", format_bytes(size)])
             for col in (1, 2):
                 it.setTextAlignment(col, Qt.AlignRight | Qt.AlignVCenter)
             return it
@@ -383,13 +507,16 @@ class QuickPage(QWidget):
             top.setExpanded(len(groups) <= 6)
         for col in (1, 2):
             self.tree.headerItem().setTextAlignment(col, Qt.AlignRight)
-        moves = sample_moves(store.rows("SELECT source, dest FROM items WHERE action='move' ORDER BY id LIMIT 8"),
-                             srcs)
+        moves = []
+        sample_srcs = [self.sources[0]] if per_subfolder and self.sources else srcs   # show the subfolder's name too
+        for st in stores:
+            moves += sample_moves(st.rows("SELECT source, dest FROM items WHERE action='move' ORDER BY id LIMIT 8"),
+                                  sample_srcs)
         from html import escape
+        moves = moves[:8]
         self.samples.setText("<b>Examples</b><br>" + "<br>".join(
             f"{escape(a)} &nbsp;→&nbsp; <b>{escape(b)}</b>" for a, b in moves) if moves else "")
-        self.notice.setText(explain_scan_notice(st.files if st else 1, len(st.errors) if st else 0,
-                                                len(self.win._protected) if st else 0))
+        self.notice.setText(explain_scan_notice(files, errors, protected))
         self.apply_btn.setText(f"Apply {s['changes']:,} change{'s' if s['changes'] != 1 else ''}")
         self.apply_btn.setEnabled(s["changes"] > 0)
         self.show_view(REVIEW)
@@ -402,6 +529,8 @@ class QuickPage(QWidget):
 
     # ----------------------------------------------------------------- apply
     def apply(self):
+        if self.groups:
+            return self._apply_groups()
         store = self.win.store
         if store is None or self.win.thread is not None:
             return
@@ -419,6 +548,43 @@ class QuickPage(QWidget):
                       on_fail=self._apply_failed)
         if self.win.worker is not None:
             self.win.worker.progress.connect(self._progress)
+
+    def _apply_groups(self):
+        if self.win.thread is not None:
+            return
+        n = sum(g.store.count("changes") for g in self.groups)
+        review = sum(g.store.count("review") for g in self.groups)
+        msg = (f"Organize {n:,} files across {len(self.groups)} structure"
+               f"{'s' if len(self.groups) != 1 else ''} now?\n\n• Existing files are never overwritten\n"
+               f"• {review:,} files stay put for your decision\n• Everything can be undone")
+        if QMessageBox.question(self, "Apply changes?", msg, QMessageBox.Apply | QMessageBox.Cancel,
+                                QMessageBox.Cancel) != QMessageBox.Apply:
+            return
+        self.apply_btn.setEnabled(False)
+        self._begin("Organizing…")
+        self.win._run(W.job_subfolder_apply, self._applied_groups, self.win.engine, self.groups, cancellable=True,
+                      pausable=True, on_fail=self._apply_failed)
+        if self.win.worker is not None:
+            self.win.worker.progress.connect(self._progress)
+
+    def _applied_groups(self, res):
+        self.win.refresh_history()
+        self.win.duplicate_page.invalidate()
+        self.win.music_page.set_rows([])
+        self.win.show_quick()
+        self.last_batches = list(res.batches)
+        self.last_batch = None
+        self.done_hero.setText("All done ✓" if res.status == "completed" else res.status.replace("_", " ").capitalize())
+        detail = f"{res.done:,} organized"
+        if res.failed or res.skipped:
+            detail += f" · {res.failed:,} failed · {res.skipped:,} skipped"
+        if res.bytes_copied:
+            detail += f" · {format_bytes(res.bytes_copied)} copied and verified"
+        problems = "\n".join(f"• {os.path.basename(src)}: {why}" for src, why in res.errors[:6])
+        self.done_detail.setText(detail + (f"\n\n{problems}" if problems else ""))
+        self.undo_btn.setEnabled(bool(res.batches))
+        self.groups = []
+        self.show_view(DONE)
 
     def _apply_failed(self, msg: str):
         self.show_view(REVIEW)
@@ -445,6 +611,14 @@ class QuickPage(QWidget):
 
     # ------------------------------------------------------------------ undo
     def undo(self):
+        if self.last_batches and self.win.thread is None:
+            if QMessageBox.question(self, "Undo everything?", "Put every file back where it was?",
+                                    QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel) != QMessageBox.Yes:
+                return
+            self._begin("Undoing…")
+            self.win._run(W.job_subfolder_undo, self._undone_groups, self.win.engine, self.last_batches,
+                          on_fail=lambda m: (self.show_view(DONE), QMessageBox.warning(self, "Cannot undo", m)))
+            return
         if not self.last_batch or self.win.thread is not None:
             return
         if QMessageBox.question(self, "Undo everything?", "Put every file back where it was?",
@@ -453,6 +627,14 @@ class QuickPage(QWidget):
         self._begin("Undoing…")
         self.win._run(W.job_undo, self._undone, self.win.engine, self.last_batch,
                       on_fail=lambda m: (self.show_view(DONE), QMessageBox.warning(self, "Cannot undo", m)))
+
+    def _undone_groups(self, reports):
+        self.win.refresh_history()
+        self.last_batches = []
+        self.done_hero.setText("Undone ↶")
+        self.done_detail.setText(" ".join(r.summary() for r in reports))
+        self.undo_btn.setEnabled(False)
+        self.show_view(DONE)
 
     def _undone(self, rep):
         self.win._undone(rep)

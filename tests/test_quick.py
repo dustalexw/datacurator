@@ -109,3 +109,39 @@ def test_quick_page_is_default_and_full_cycle(window, tmp_path):
     assert w.pages.currentWidget() is w.quick
     w.steps.setCurrentRow(2)
     assert w.pages.currentWidget() is w.review_page
+
+
+def test_quick_page_per_subfolder_structures_full_cycle(window, tmp_path):
+    qapp, w = window
+    from datacurator.gui import quick as Q
+    from datacurator.engine import subfolders as SF
+    parent = tmp_path / "Stuff"
+    for i in range(3):
+        (parent / "Trip").mkdir(parents=True, exist_ok=True)
+        (parent / "Trip" / f"IMG_{i}.jpg").write_bytes(b"\xff\xd8\xff\xe0 jpg")
+    for n in ("a.pdf", "b.xlsx", "c.docx"):
+        (parent / "Work").mkdir(exist_ok=True)
+        (parent / "Work" / n).write_bytes(b"x")
+    (parent / "repo" / ".git").mkdir(parents=True)
+    (parent / "repo" / ".git" / "HEAD").write_text("ref")
+    (parent / "repo" / "doc.pdf").write_bytes(b"x")
+    w.quick.add_sources([str(parent)])
+    assert w.quick.sub_check.isVisible() or w.quick.sub_infos          # offered for a folder with subfolders
+    assert {i.name for i in w.quick.sub_infos} == {"Trip", "Work", "repo"}
+    w.quick.sub_check.setChecked(True)
+    assign = w.quick._assignments()
+    assert assign[str(parent / "Work")] == "documents" and assign[str(parent / "repo")] == SF.LEAVE
+    # the protected folder's picker is locked
+    repo_row = [i.name for i in w.quick.sub_infos].index("repo")
+    assert not w.quick.sub_table.cellWidget(repo_row, 2).isEnabled()
+    w.quick.suggest()
+    _wait(qapp, w)
+    assert w.quick.views.currentIndex() == Q.REVIEW and not w.quick.tune_btn.isVisibleTo(w.quick)
+    assert w.quick.apply_btn.isEnabled()
+    w.quick.apply()
+    _wait(qapp, w)
+    assert w.quick.views.currentIndex() == Q.DONE and "All done" in w.quick.done_hero.text()
+    assert (parent / "Work" / "PDFs" / "a.pdf").exists() and (parent / "repo" / "doc.pdf").exists()
+    w.quick.undo()
+    _wait(qapp, w)
+    assert (parent / "Work" / "a.pdf").exists() and "Undone" in w.quick.done_hero.text()
