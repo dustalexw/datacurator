@@ -7,6 +7,8 @@ import threading
 from collections import OrderedDict
 from typing import Callable
 
+from ..storage.fsops import fsync_dir  # noqa: F401  (re-exported; lives in storage so storage never imports engine)
+
 CHUNK = 1024 * 1024
 
 
@@ -58,21 +60,6 @@ def is_within_real(path: str, root: str) -> bool:
         existing = parent
     real = os.path.join(os.path.realpath(existing), *reversed(tail))
     return is_within(real, os.path.realpath(root))
-
-
-def fsync_dir(path: str) -> None:
-    if os.name == "nt":  # directories cannot be fsynced on Windows; NTFS journals metadata
-        return
-    try:
-        fd = os.open(path, os.O_RDONLY)
-    except OSError:
-        return
-    try:
-        os.fsync(fd)
-    except OSError:
-        pass
-    finally:
-        os.close(fd)
 
 
 class DirListingCache:

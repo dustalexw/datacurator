@@ -3,13 +3,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
-import signal
 import sys
 import time
 
 from . import __version__
 from . import profiles as profiles_mod
+from .core.errors import ExitCode, explain_exception
+from .core.lifecycle import ShutdownCoordinator
+from .core.logs import configure_logging
+from .core.progress import NullProgress, TerminalProgress, adapt_legacy_callback
 from .engine.api import Engine
 from .engine.executor import Control, fmt_bytes
 from .engine.planstore import FILTERS, explain
@@ -22,34 +26,31 @@ def _engine(a) -> Engine:
 
 
 def _load_profile(a) -> dict:
-    if not a.profile:
-        raise CuratorError("--profile is required (see `curator init-profile`).")
-    p = profiles_mod.load(a.profile)
-    for s in getattr(a, "source", None) or []:
+    if a.profile:
+        p = profiles_mod.load(a.profile)
+    elif getattr(a, "source", None):
+        # Zero-config: with only --source, suggest the maximum-tidiness layout (preview only until applied).
+        p = profiles_mod.organized_profile([os.path.abspath(s) for s in a.source])
+    else:
+        raise CuratorError("Give --source <folder> for a suggested layout, or --profile <file>.\n"
+                           "  e.g. curator plan -s ~/Downloads        (nothing changes until you apply)")
+    for s in (getattr(a, "source", None) or []) if a.profile else []:
         p["sources"].append(os.path.abspath(s))
     if not p["sources"]:
         raise CuratorError("The profile has no sources.")
     return p
 
 
-def _progress_printer(quiet: bool):
-    last = [0.0]
+def _progress_printer(quiet: bool, phase: str = "scan"):
+    """Legacy-shape callback (``(folder, n)`` or ``{...}``) feeding the shared terminal renderer."""
+    sink = NullProgress() if quiet else TerminalProgress()
+    return adapt_legacy_callback(sink, phase)
 
-    def cb(*args):
-        if quiet:
-            return
-        now = time.monotonic()
-        if now - last[0] < 0.5:
-            return
-        last[0] = now
-        if len(args) == 2:
-            d, n = args
-            print(f"\r  {n} files… {d[-60:]}".ljust(80), end="", file=sys.stderr, flush=True)
-        else:
-            ev = args[0]
-            print(f"\r  {ev['done']}/{ev['total']}  {fmt_bytes(ev.get('bytes', 0))} copied".ljust(80), end="",
-                  file=sys.stderr, flush=True)
-    return cb
+
+def _cancel_event(a):
+    """Event set by Ctrl-C / SIGTERM so scan and plan stop at the next folder or file."""
+    sd = getattr(a, "shutdown", None)
+    return sd.event if sd is not None else None
 
 
 def _print_summary(store) -> None:
@@ -76,13 +77,18 @@ def cmd_scan(a):
     e = _engine(a)
     p = _load_profile(a)
     t = time.time()
-    st = e.scan(p, progress=_progress_printer(a.quiet))
+    st = e.scan(p, progress=_progress_printer(a.quiet, "scan"), cancel=_cancel_event(a))
     if not a.quiet:
         print("\r" + " " * 80 + "\r", end="", file=sys.stderr, flush=True)
     print(f"Scanned {st.files} files in {st.dirs} folders in {time.time() - t:.1f}s "
           f"(metadata read: {st.extracted}, reused from catalog: {st.reused}, removed: {st.removed}).".ljust(80))
     for x in st.errors[:20]:
         print("  ! " + x)
+    if len(st.errors) > 20:
+        print(f"  ! … and {len(st.errors) - 20} more (see the log file, or run with -v)")
+    if st.cancelled:
+        print("  Scan cancelled; the catalog keeps what was read and nothing was removed from it.")
+        return int(ExitCode.INTERRUPTED)
     if st.cycles:
         print(f"  symlink loops skipped: {len(st.cycles)}")
     if st.skipped_mounts:
@@ -99,8 +105,10 @@ def cmd_plan(a):
     e = _engine(a)
     p = _load_profile(a)
     if not a.no_scan:
-        cmd_scan(a)
-    store = e.plan(p, progress=_progress_printer(a.quiet))
+        rc = cmd_scan(a)
+        if rc:
+            return rc
+    store = e.plan(p, progress=_progress_printer(a.quiet, "plan"), cancel=_cancel_event(a))
     print("\r" + " " * 80 + "\r", end="", file=sys.stderr)
     _print_summary(store)
     if a.show:
@@ -139,16 +147,13 @@ def _apply(e: Engine, store, a, unattended=False):
             print("Nothing changed.")
             return 1
     control = Control()
-
-    def on_sigint(sig, frame):
-        print("\nCancelling after the current file…", file=sys.stderr)
-        control.cancel()
-    old = signal.signal(signal.SIGINT, on_sigint)
+    sd = getattr(a, "shutdown", None)
+    detach = sd.attach(control.cancel) if sd is not None else (lambda: None)
     try:
-        res = e.apply(store, progress=_progress_printer(a.quiet), control=control,
+        res = e.apply(store, progress=_progress_printer(a.quiet, "apply"), control=control,
                       approve_deletes=getattr(a, "approve_deletes", False))
     finally:
-        signal.signal(signal.SIGINT, old)
+        detach()
     print(f"\rBatch {res.batch_id}: {res.status}. {res.message}".ljust(80))
     for src, why in (res.preflight + res.errors)[:50]:
         print(f"  - {src}: {why}")
@@ -181,8 +186,11 @@ def cmd_run(a):
     if e.journal.unfinished():
         rep = e.recover(resume=bool(p["unattended"].get("resume_interrupted", True)))
         print(f"Recovered {len(rep.batches)} interrupted batch(es).")
-    e.scan(p)
-    store = e.plan(p)
+    st = e.scan(p, cancel=_cancel_event(a))
+    if st.cancelled:
+        print("Scan cancelled; nothing was changed.")
+        return int(ExitCode.INTERRUPTED)
+    store = e.plan(p, cancel=_cancel_event(a))
     _print_summary(store)
     if store.count("changes") == 0:
         print("Nothing to do.")
@@ -243,6 +251,9 @@ def cmd_probe(a):
 
 def cmd_override(a):
     e = _engine(a)
+    if not a.group and not a.path:
+        raise CuratorError("Name a file or folder, or use --group <id>.\n"
+                           "  e.g. curator override ~/Music/song.flac album_artist='Daft Punk'")
     target = f"group:{a.group}" if a.group else os.path.abspath(a.path)
     for kv in a.values:
         if "=" not in kv:
@@ -351,7 +362,9 @@ def cmd_dedupe(a):
     e = _engine(a)
     p = _load_profile(a)
     if not a.no_scan:
-        cmd_scan(a)
+        rc = cmd_scan(a)
+        if rc:
+            return rc
     store = plan_dedupe(e.catalog, p["sources"], a.quarantine, e.plans_dir,
                         prefer_roots=[c["root"] for c in p["categories"].values() if c.get("root")], profile=p)
     _print_summary(store)
@@ -404,6 +417,10 @@ def cmd_template(a):
 
 
 def cmd_init_profile(a):
+    if a.organized:
+        profiles_mod.save(profiles_mod.organized_profile([os.path.abspath(s) for s in a.source or []]), a.out)
+        print(f"Profile written to {a.out}")
+        return 0
     p = json.loads(json.dumps(profiles_mod.DEFAULT_PROFILE))
     p["name"] = a.name
     p["sources"] = [os.path.abspath(s) for s in a.source or []]
@@ -422,7 +439,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="curator", description="Data Curator — deterministic file organizer.")
     ap.add_argument("--version", action="version", version=__version__)
     ap.add_argument("--data-dir", help="catalog/journal location (default: per-user app data)")
-    ap.add_argument("-q", "--quiet", action="store_true")
+    ap.add_argument("-q", "--quiet", action="store_true", help="no progress output")
+    ap.add_argument("-v", "--verbose", action="count", default=0,
+                    help="show log messages (-v info, -vv debug); a JSON log is always kept in the log folder")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def prof(sp):
@@ -534,6 +553,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("init-profile", help="write a starter profile")
     sp.add_argument("out")
     sp.add_argument("--name", default="My library")
+    sp.add_argument("--organized", action="store_true",
+                    help="maximum tidiness: category folders, photos by date, everything gets a home")
     sp.add_argument("--source", "-s", action="append")
     for cat in ("music", "tv", "movies", "documents", "photos", "other"):
         sp.add_argument(f"--{cat}-root")
@@ -544,17 +565,27 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     ap = build_parser()
     a = ap.parse_args(argv)
-    try:
-        return a.fn(a) or 0
-    except CuratorError as e:
-        print(str(e), file=sys.stderr)
-        return 1
-    except FileNotFoundError as e:
-        print(str(e), file=sys.stderr)
-        return 1
-    except KeyboardInterrupt:
-        print("\nInterrupted.", file=sys.stderr)
-        return 130
+    log_path = configure_logging(getattr(a, "verbose", 0))
+    log = logging.getLogger("datacurator.cli")
+    log.debug("command=%s argv=%s", a.cmd, argv if argv is not None else sys.argv[1:])
+    with ShutdownCoordinator(announce=lambda m: print("\n" + m, file=sys.stderr, flush=True)) as sd:
+        a.shutdown = sd
+        try:
+            rc = a.fn(a) or 0
+            return int(sd.exit_code) if sd.requested and rc == 0 else int(rc)
+        except KeyboardInterrupt:
+            print("\nInterrupted. Finished steps are kept; run `curator recover` if a run was in progress.",
+                  file=sys.stderr)
+            return int(sd.exit_code)
+        except BaseException as exc:  # noqa: BLE001 - last line of defence: never show a raw traceback
+            if isinstance(exc, SystemExit):
+                raise
+            err = explain_exception(exc)
+            log.debug("command failed", exc_info=True)
+            print(err.render(verbose=getattr(a, "verbose", 0) > 0), file=sys.stderr)
+            if log_path and err.summary == "Unexpected internal error.":
+                print(f"  log: {log_path}", file=sys.stderr)
+            return int(err.exit_code)
 
 
 if __name__ == "__main__":

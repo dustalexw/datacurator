@@ -12,7 +12,6 @@ import stat as stat_mod
 import sys
 import unicodedata
 
-from ..engine.util import fsync_dir
 from .capabilities import xattr_safe
 
 _RENAME_NOREPLACE = 1
@@ -28,6 +27,21 @@ def _get_libc():
         except OSError:  # pragma: no cover
             _libc = False
     return _libc
+
+
+def fsync_dir(path: str) -> None:
+    if os.name == "nt":  # directories cannot be fsynced on Windows; NTFS journals metadata
+        return
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
 
 
 class LocalFS:

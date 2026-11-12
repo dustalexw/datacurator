@@ -156,6 +156,8 @@ def _scan_root(root, catalog, opts, stats, exclude, scan_id, workers, progress, 
                 complete = False
                 continue
             known = catalog.dir_index(d)
+            # Once per directory, not once per file (realpath is several syscalls), and only if it can matter.
+            via_symlink = opts.follow_symlinks and d != os.path.realpath(d)
             batch: list[FileRecord] = []
             meta_jobs = []
             subdirs = []
@@ -194,7 +196,7 @@ def _scan_root(root, catalog, opts, stats, exclude, scan_id, workers, progress, 
                 kind = kind_for(ext).value
                 rec = FileRecord(path=full, root=root, size=st.st_size, mtime_ns=st.st_mtime_ns,
                                  ino=st.st_ino, dev=st.st_dev, nlink=st.st_nlink, kind=kind,
-                                 via_symlink=d != os.path.realpath(d) and opts.follow_symlinks)
+                                 via_symlink=via_symlink)
                 stats.files += 1
                 old = known.get(name)
                 unchanged = (old is not None and old["size"] == st.st_size and old["mtime_ns"] == st.st_mtime_ns

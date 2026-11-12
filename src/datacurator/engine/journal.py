@@ -139,6 +139,19 @@ class Journal:
         out = [self._op(r) for r in rows]
         return [o for o in out if states is None or o.state in states]
 
+    def kept_partial(self, bid: str, item_id: int | None, exclude_seq: int) -> str | None:
+        """Temp path of a partial copy kept from an interrupted run of `item_id` (newest first).
+
+        One indexed SQL lookup; replaces loading and scanning every op of the batch for each
+        resumed file (quadratic on large resumes).
+        """
+        with self._lock:
+            row = self.db.execute(
+                "SELECT tmp FROM ops WHERE batch=? AND item_id IS ? AND seq<>? AND state='reverted' "
+                "AND tmp IS NOT NULL AND note LIKE '%partial kept%' ORDER BY seq DESC LIMIT 1",
+                (bid, item_id, exclude_seq)).fetchone()
+        return row[0] if row else None
+
     def done_items(self, bid: str) -> set[int]:
         with self._lock:
             return {r[0] for r in self.db.execute(

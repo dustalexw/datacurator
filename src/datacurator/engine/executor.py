@@ -152,11 +152,8 @@ class Executor:
         """A partial copy kept from an interrupted run of the same item (resumable transfer)."""
         if not self.resume_batch:
             return None
-        for prev in self.j.ops(self.batch, reverse=True):
-            if prev.item_id == op.item_id and prev.seq != op.seq and prev.tmp and prev.state == "reverted" \
-                    and prev.note and "partial kept" in prev.note and self.fs.exists(prev.tmp):
-                return prev.tmp
-        return None
+        tmp = self.j.kept_partial(self.batch, op.item_id, op.seq)
+        return tmp if tmp and self.fs.exists(tmp) else None
 
     # ---------------------------------------------------------------- preflight
     def _items(self) -> list[PlanItem]:

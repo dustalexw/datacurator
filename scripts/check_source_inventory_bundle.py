@@ -36,12 +36,15 @@ def check_bundle(cli):
         run('plan', '-p', str(profile), '--json', str(report))
         plan = json.loads(report.read_text())
         items = {Path(item['source']): item for item in plan['items']}
-        assert set(items) == set(paths)
+        # Application bundles are reported as protected without listing their insides (see
+        # tests/test_source_inventory.py); every other file is inventoried.
+        bundles = {path for path in paths if 'App.app' in path.parts}
+        assert set(items) == set(paths) - bundles
         for source in sources:
             assert Path(items[source / 'receipt.pdf']['dest']) == source / 'Documents/receipt.pdf'
             assert Path(items[source / 'archive.zip']['dest']) == source / 'Other files/archive.zip'
             assert items[source / 'Documents/organized.pdf']['action'] == 'none'
-            assert items[source / 'App.app/Contents/data.bin']['action'] == 'skip'
+            assert source / 'App.app/Contents/data.bin' not in items
         assert all(path.read_bytes() == contents for path, contents in before.items())
         assert all(not (source / 'Other files').exists() for source in sources)
         result = run('apply', plan['header']['plan_id'], '--yes')
@@ -49,7 +52,8 @@ def check_bundle(cli):
         assert batch, result
         for source in sources:
             assert (source / 'Documents/receipt.pdf').exists()
-            assert (source / 'Other files/.hidden').exists()
+            assert (source / '.hidden').exists()  # hidden settings-style files stay where they are (1.4.0)
+            assert (source / 'Other files/extensionless').exists()
             assert (source / 'App.app/Contents/data.bin').exists()
         run('plan', '-p', str(profile), '--json', str(report))
         again = json.loads(report.read_text())

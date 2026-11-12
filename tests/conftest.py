@@ -9,6 +9,12 @@ sys.path.insert(0, os.path.dirname(__file__))
 from datacurator.engine.api import Engine  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _isolated_logs(tmp_path, monkeypatch):
+    """CLI tests must not write JSON logs into the developer's real log folder."""
+    monkeypatch.setenv("DATACURATOR_LOG_DIR", str(tmp_path / "logs"))
+
+
 @pytest.fixture
 def engine(tmp_path):
     e = Engine(str(tmp_path / "appdata"))

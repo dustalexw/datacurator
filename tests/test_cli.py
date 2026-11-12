@@ -106,3 +106,17 @@ def test_cli_unattended_gate(cli, tmp_path, capsys):
     assert (lib / "A/B/01 - T.flac").exists()
     assert cli("run", "-p", prof) == 0
     assert "Nothing to do" in capsys.readouterr().out
+
+
+def test_zero_config_source_suggests_organized_layout(tmp_path, capsys):
+    from fixtures import make_file
+    src = tmp_path / "Downloads"
+    src.mkdir()
+    make_file(src / "report.pdf", b"%PDF-1.4 x")
+    make_file(src / "setup.zip", b"PK\x03\x04 z")
+    make_file(src / "notes.xyz", b"unknown")
+    data = str(tmp_path / "data")
+    assert main(["-q", "--data-dir", data, "plan", "-s", str(src), "--show", "changes"]) == 0
+    out = capsys.readouterr().out
+    assert "Documents" in out and "Other files" in out
+    assert (src / "report.pdf").exists()            # preview only: nothing moved

@@ -277,3 +277,20 @@ def opening_profile(sources=()):
     return normalize({"name": "Category folders inside sources", "sources": list(sources),
         "categories": categories, "cleanup_empty_dirs": True,
         "scan": {"inventory_all": True, "include_hidden": True}})
+
+
+def organized_profile(sources=()):
+    """Maximum-tidiness suggestion: nearly every file gets a home inside its source folder.
+
+    Builds on `opening_profile` (category folders, full inventory, empty folders tidied) and
+    additionally: sorts photos without an embedded date by modified time, resolves name
+    collisions with an alternate name instead of parking them in review, and keeps documents
+    and other files together with the folder they came from. Metadata is still never invented,
+    so genuinely ambiguous music/TV/movie files remain in the review queue. Nothing moves
+    until the plan is applied.
+    """
+    prof = opening_profile(sources)
+    return normalize({**prof, "name": "Organized: everything into category folders",
+                      "categories": {**prof["categories"],
+                                     "photos": {**prof["categories"]["photos"], "date_fallback": "mtime"}},
+                      "conflict_policy": "alternate"})
